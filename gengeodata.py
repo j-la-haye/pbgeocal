@@ -280,7 +280,7 @@ def main():
     args = parser.parse_args()
 
     if len(args) < 3:
-        print('#Example usage: python AV4_process_geo_files [path/to/bin-image/dir] [/path/to/trajectory_file]'\
+        print('#Example usage: python gengeodata [path/to/bin-image/dir] [/path/to/trajectory_file]'\
               '[/path/to/imu_file]--interp_poses False --output_dir custom_output --extension .txt')
     
 
