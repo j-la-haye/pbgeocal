@@ -236,8 +236,8 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True, o
         #check if the output directory exists, if not create it
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
-        
-        line_times = AV4_parse_line_times("extract_AV4_line_times.cpp", line)
+        av4_time_reader = 'extract-av4-line-times.cpp'
+        line_times = AV4_parse_line_times(av4_time_reader, line)
         write_csv(line_times,os.path.join(out_dir, 'line_times.csv'))
         #Write the line times to csv with column name 'frame_time' and use '#' as a comment character to ignore header
         #line_times.to_csv(os.path.join(output_dir, 'line_times.csv'), sep=',', index=False, header=['id','frame_time'], mode='w')
@@ -261,7 +261,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True, o
             write_csv(line_poses,os.path.join(out_dir, 'line_poses.csv'))
             #line_poses.to_csv(os.path.join(output_dir, 'line_poses.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
-        print(f"Interpolated poses for line: {line}")
+        print(f"Interpolated poses for line: {line.split('/')[-1]}")
 
 
 def main():
@@ -270,28 +270,31 @@ def main():
     description = "Produce AVIRIS-4 Geo-rectification data for a given line file"
 
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument('mission-path', help='Path to dir containing sub-dir line files')
-    parser.add_argument('trajectory-path', help='Path to the trajectory file')
-    parser.add_argument('imu-path', help='Path to the raw IMU data')
-    parser.add_argument('--int-pose', default=True, type=bool, help='Generate interpolated poses for given line times (default: True)')
-    parser.add_argument('--out-dir', default='line_data', help='Output directory (default: line_data)')
+    parser.add_argument('mission_path', help='Path to dir containing sub-dir line files')
+    parser.add_argument('trajectory_path', help='Path to the trajectory file')
+    parser.add_argument('imu_path', help='Path to the raw IMU data')
+    parser.add_argument('--intp_pose', default=True, type=bool, help='Generate interpolated poses for given line times (default: True)')
+    parser.add_argument('--out_dir', default='line_data', help='Output directory (default: line_data)')
     parser.add_argument('--ext', default='.bin', help='File extension (default: .bin)')
    
     args = parser.parse_args()
+    if not args.mission_path or not args.trajectory_path or not args.imu_path:
+        parser.print_help()
+        exit(1)
 
-    if len(args) < 3:
-        print('Example usage: python av4-extract-time-pose [path/to/mission-dir/]  [/path/to/trajectory_file]'\
-              '[/path/to/imu_file] --int-pose False --out-dir L1-geo-data --ext [default .bin]')
+    #if len(args) < 3:
+    #    print('Example usage: python av4-extract-time-pose [path/to/mission-dir/]  [/path/to/trajectory_file]'\
+    #          '[/path/to/imu_file] --int-pose False --out-dir L1-geo-data --ext [default .bin]')
     
 
     # AV4_process_geo_files(in_path,traj_data,imu_data=None,interp_poses = True, output_dir='line_data',extension=".bin"):
     av4_extract_time_pose(
-        in_path=args.line_path,
+        in_path=args.mission_path,
         traj_data=args.trajectory_path,
         imu_data=args.imu_path,
-        interp_poses=args.interp_poses,
+        interp_poses=args.intp_pose,
         out_dir=args.out_dir,
-        extension=args.extension
+        extension=args.ext
     )
 
 
