@@ -281,7 +281,7 @@ def main():
 
     if len(args) < 3:
         print('Example usage: python av4-extract-time-pose [path/to/bin-image/dir] [/path/to/trajectory_file]'\
-              '[/path/to/imu_file]--int-pose False --out-dir L1-geo-data --ext [default .bin]')
+              '[/path/to/imu_file] --int-pose False --out-dir L1-geo-data --ext [default .bin]')
     
 
     # AV4_process_geo_files(in_path,traj_data,imu_data=None,interp_poses = True, output_dir='line_data',extension=".bin"):
