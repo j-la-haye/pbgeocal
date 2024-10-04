@@ -1,4 +1,5 @@
-# av4-extract-time-pose: extract GPS times (GPS TOD in 10usec) from binary AV4 flight lines contained in specified `mission-path`  and interpolate poses from processed trajectory. 
+# av4-extract-time-pose: 
+- extract GPS times (GPS TOD in 10usec) from binary AV4 flight lines contained in specified `mission-path`  and interpolate poses from processed trajectory. 
 
 
 ```
