@@ -270,7 +270,7 @@ def main():
     description = "Produce AVIRIS-4 Geo-rectification data for a given line file"
 
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument('line-path', help='Path to dir containing sub-dir line files')
+    parser.add_argument('mission-path', help='Path to dir containing sub-dir line files')
     parser.add_argument('trajectory-path', help='Path to the trajectory file')
     parser.add_argument('imu-path', help='Path to the raw IMU data')
     parser.add_argument('--int-pose', default=True, type=bool, help='Generate interpolated poses for given line times (default: True)')
@@ -280,7 +280,7 @@ def main():
     args = parser.parse_args()
 
     if len(args) < 3:
-        print('Example usage: python av4-extract-time-pose [path/to/bin-image/dir] [/path/to/trajectory_file]'\
+        print('Example usage: python av4-extract-time-pose [path/to/mission-dir/]  [/path/to/trajectory_file]'\
               '[/path/to/imu_file] --int-pose False --out-dir L1-geo-data --ext [default .bin]')
     
 
