@@ -211,7 +211,7 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
     
     return line_poses
 
-def AV4_process_geo_files(in_path,traj_data,imu_data=None,interp_poses = True, out_dir='line_data',extension=".bin"):
+def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True, out_dir='line_data',extension=".bin"):
     #Write an example usage for this function how to call it from the terminal 
 
     #Create a list of the paths to all the raw data '.bin' files in the subdirectories of in_path
@@ -267,25 +267,25 @@ def AV4_process_geo_files(in_path,traj_data,imu_data=None,interp_poses = True, o
 def main():
     
     
-    description = "AVIRIS-4 Produce Geo-Processing Data"
+    description = "Produce AVIRIS-4 Geo-rectification data for a given line file"
 
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument('line_path', help='Path to the line file')
-    parser.add_argument('trajectory_path', help='Path to the trajectory file')
-    parser.add_argument('imu_path', help='Path to the raw IMU data')
-    parser.add_argument('--interp_poses', default=True, type=bool, help='Interpolate poses for line times (default: True)')
-    parser.add_argument('--out_dir', default='line_data', help='Output directory (default: line_data)')
+    parser.add_argument('line-path', help='Path to the line file')
+    parser.add_argument('trajectory-path', help='Path to the trajectory file')
+    parser.add_argument('imu-path', help='Path to the raw IMU data')
+    parser.add_argument('--int-pose', default=True, type=bool, help='Generate interpolated poses for given line times (default: True)')
+    parser.add_argument('--out-dir', default='line_data', help='Output directory (default: line_data)')
     parser.add_argument('--extension', default='.bin', help='File extension (default: .bin)')
    
     args = parser.parse_args()
 
     if len(args) < 3:
-        print('#Example usage: python gengeodata [path/to/bin-image/dir] [/path/to/trajectory_file]'\
+        print('Example usage: python av4-extract-time-pose [path/to/bin-image/dir] [/path/to/trajectory_file]'\
               '[/path/to/imu_file]--interp_poses False --output_dir custom_output --extension .txt')
     
 
     # AV4_process_geo_files(in_path,traj_data,imu_data=None,interp_poses = True, output_dir='line_data',extension=".bin"):
-    AV4_process_geo_files(
+    av4_extract_time_pose(
         in_path=args.line_path,
         traj_data=args.trajectory_path,
         imu_data=args.imu_path,
