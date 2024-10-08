@@ -13,3 +13,4 @@ node_modules/
 
 # Ignore a specific file
 config.json
+av4-extract-time-pose.ini

@@ -71,9 +71,9 @@ class Sbet(object):
         'Save the SBET data to a CSV file'
         # Write the header
         with open(filename, 'w') as csv_file:
-            csv_file.write('#time_10usec,latitude,longitude,altitude,roll,pitch,heading,'\
-                           #'x_acceleration,y_acceleration,z_acceleration,x_angular_rate,y_angular_rate,wander_angle,'\
-                            'z_angular,x_vel,y_vel,z_vel\n')
+            csv_file.write('#time_10usec,lat_deg,lon_deg,altitude,roll,pitch,heading,'\
+                           #'x_acceleration,y_acceleration,z_acceleration,x_angular_rate,y_angular_rate,'z_angular_rate,wander_angle,'\
+                            'x_vel,y_vel,z_vel\n')
             for datagram in self:
                 csv_file.write(f"{datagram['time_10usec']:.0f},{datagram['lat_deg']},{datagram['lon_deg']},{datagram['altitude']},"
                                f"{datagram['roll']},{datagram['pitch']},{datagram['heading']},{datagram['x_vel']},{datagram['y_vel']},{datagram['z_vel']}\n")

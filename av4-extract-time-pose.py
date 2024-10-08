@@ -1,3 +1,4 @@
+import configparser
 import subprocess
 import os
 import pandas as pd
@@ -7,7 +8,8 @@ import glob
 import argparse
 from bisect import bisect_left
 from pathlib import Path
-import Sbet
+from Sbet import Sbet
+
  
 def write_csv(input_df,output_file):
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -44,7 +46,8 @@ def AV4_parse_line_times(cpp_file, input_file=None):
         print(compile_process.stderr)
         return None
     
-    print("Compilation successful.")
+    print(f"Extracting Aviris-4 frame time stamps from: {input_file}")
+    #print(f"Processed times,traj and imu line: {line.split('/')[-1]}")
     
     # Run the compiled executable
     run_command = f"./{filename}"
@@ -77,43 +80,39 @@ def find_traj_index(traj_times, line_time):
 		i += 1
 	return i
 
-def extract_line_data(in_data, line_times, in_type): 
+def extract_line_data(in_data, line_times, buffer_size=100,in_type=['traj','imu']): 
     
     if in_type == 'traj':
-        input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt', 'vx', 'vy','vz','r','p','y'])
-        input_times  = input_df['time']
+        #time_10usec,latitude,longitude,altitude,roll,pitch,heading,'x_vel,y_vel,z_vel\n')
+        input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','y', 'vel_x', 'vel_y','vel_z']) 
     elif in_type == 'imu':
         input_df = pd.read_csv(in_data, encoding='utf-8', sep='\t',comment='#',names=['time','gyro1','gyro2','gyro3','acc1','acc2','acc3','sensorStatus'])
         input_df = input_df.drop(columns=['sensorStatus'])
         input_df['time'] = input_df['time']*1e5
         
     
-    # convert line_times['GPS_sod(10usec)'] to a list and covert each element to a float
-    line_times = np.array(line_times['GPS_sod(10usec)'], dtype=np.int32)
+    # convert line_times['tod(10usec)'] to a list and covert each element to a float
+    line_times = np.array(line_times['tod(10usec)'], dtype=np.int32)
     #line_times = [int(time) for time in line_times['GPS_sod(10usec)']]
 
     #Save line trajectory/imu data 
     idx_min = bisect_left(input_df['time'], line_times[0])
     idx_max = bisect_left(input_df['time'], line_times[-1])
     
-    t_idx_min = find_traj_index(input_df['time'], line_times[0])
-    t_idx_max = find_traj_index(input_df['time'], line_times[-1])
-
-    traj_min = max(idx_min - 100, 0)
-    traj_max = min(idx_max + 100, len(input_df['time'])-1)
+    traj_min = max(idx_min - buffer_size, 0)
+    traj_max = min(idx_max + buffer_size, len(input_df['time'])-1)
 
     line_data = input_df.loc[traj_min:traj_max] #.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')
 
     return line_data
 
-
 def interpolate_line_poses_opt(traj, line_times):
 
     # Convert line_times to a NumPy array
-    line_times = np.array(line_times['GPS_sod(10usec)'], dtype=np.float64)
+    line_times = np.array(line_times['tod(10usec)'], dtype=np.float64)
 
     # Convert trajectory data to NumPy arrays
-    traj_df = pd.read_csv(traj, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt', 'vx', 'vy','vz','r','p','y'])
+    traj_df = pd.read_csv(traj, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','y', 'vel_x', 'vel_y','vel_z'])
     traj_times  = np.array(traj_df['time'])
     roll = np.array(traj_df['r'])
     pitch = np.array(traj_df['p'])
@@ -122,14 +121,7 @@ def interpolate_line_poses_opt(traj, line_times):
     lon = np.array(traj_df['lon'])
     alt = np.array(traj_df['alt'])
     
-    # Precompute spline representations
-    # spline_roll = splrep(traj_times, roll, k=1, s=0)
-    # spline_pitch = splrep(traj_times, pitch, k=1, s=0)
-    # spline_yaw = splrep(traj_times, yaw, k=1, s=0)
-    # spline_lat = splrep(traj_times, lat, k=1, s=0)
-    # spline_lon = splrep(traj_times, lon, k=1, s=0)
-    # spline_alt = splrep(traj_times, alt, k=1, s=0)
-
+    
     def find_traj_index(traj_times, target_time):
         return bisect_left(traj_times, target_time)
 
@@ -156,7 +148,7 @@ def interpolate_line_poses_opt(traj, line_times):
         alt_inter[i] = splev(time, splrep(traj_times[m:n], alt[m:n], k=1, s=0), der=0)
     
     # add line times and interpolated values to a DataFrame
-    line_poses = pd.DataFrame({"line_id": list(range(1, len(line_times) + 1)), "GPS_sod(10usec)": line_times, "roll": roll_inter, "pitch": pitch_inter, "yaw": yaw_inter, "lat": lat_inter, "lon": lon_inter, "alt": alt_inter})
+    line_poses = pd.DataFrame({"line_id": list(range(1, len(line_times) + 1)), "tod(10usec)": line_times, "roll": roll_inter, "pitch": pitch_inter, "yaw": yaw_inter, "lat": lat_inter, "lon": lon_inter, "alt": alt_inter})
     return line_poses
 
 def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt):
@@ -168,7 +160,7 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
     lon_inter = []
     alt_inter = []
     
-    traj_df = pd.read_csv(traj, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt', 'vx', 'vy','vz','r','p','y'])
+    traj_df = pd.read_csv(traj, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','y', 'vel_x', 'vel_y','vel_z'])
     traj_times  = traj_df['time']
     roll = traj_df['r']
     pitch = traj_df['p']
@@ -178,7 +170,7 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
     alt = traj_df['alt']
 
     # convert line_times['GPS_sod(10usec)'] to a list and covert each element to a float
-    line_times = [int(time) for time in line_times['GPS_sod(10usec)']]
+    line_times = [int(time) for time in line_times['tod(10usec)']]
 
     # Find the index of the first and last line in the trajectory data and interpolate the poses within that range
     for i in range(len(line_times)):
@@ -207,114 +199,144 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
     yaw_inter = [float(f"{val:.10f}") for val in yaw_inter]
 
     # add line times and interpolated values to a DataFrame
-    line_poses = pd.DataFrame({"line_id": list(range(1, len(line_times) + 1)), "GPS_sod(10usec)": line_times, "roll": roll_inter, "pitch": pitch_inter, "yaw": yaw_inter, "lat": lat_inter, "lon": lon_inter, "alt": alt_inter})
+    line_poses = pd.DataFrame({"line_id": list(range(1, len(line_times) + 1)), "tod(10usec)": line_times, "roll": roll_inter, "pitch": pitch_inter, "yaw": yaw_inter, "lat": lat_inter, "lon": lon_inter, "alt": alt_inter})
     
     return line_poses
 
-def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True, out_dir='line_data',extension=".bin"):
+def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True, buffer_size=1000,data_dir='line_data',extension=".bin",out_traj='Atlans_sbet_NED_tod_10usec.csv'):
     
     sbet = Sbet(traj_data)
-    sbet_csv_path = os.path.join(out_dir,'Atlans_A7-real_time_traj_NED_10usec.csv')
+    
+    sbet_csv_path = sbet_csv_path = traj_data.split('.')[0]+'.csv'
+    print(f"Parsing SBET and saving to csv: {sbet_csv_path}")
     sbet.saveSbet2csv(sbet_csv_path)
     
-    #Create a list of the paths to all the raw data '.bin' files in the subdirectories of in_path
-    if not os.access(in_path, os.R_OK):
-        print(f"No read permissions for {in_path}")
-        return
-
     in_path = Path(in_path)
-
+    
     # check if the input path is a directory
     if not os.path.isdir(in_path):
         print(f"Input path {in_path} is not a directory")
         return
-    
+    # check if the input is readable
+    if not os.access(in_path, os.R_OK):
+        print(f"No read permissions for {in_path}")
+        return
+
+    #Create a list of the paths to all the raw data '.bin' files in the subdirectories of in_path
     line_files = glob.glob(os.path.join(in_path, f"**/*{extension}"), recursive=True) 
+    print(f"Found {len(line_files)} line files in {in_path}")
+    print(line_files)
         
     for line in line_files:
-        
+        print(f"Processing line {line.split('/')[-1]}")
         #create new 'output' directory in the line directory to store the interpolated poses
-        out_dir = os.path.join(os.path.dirname(line), out_dir)
+        save_path = os.path.join(os.path.dirname(line), data_dir)
         
         #check if the output directory exists, if not create it
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
         av4_time_reader = 'extract-av4-line-times.cpp'
         line_times = AV4_parse_line_times(av4_time_reader, line)
-        write_csv(line_times,os.path.join(out_dir, 'line_times.csv'))
+        write_csv(line_times,os.path.join(save_path, 'line_times.csv'))
         #Write the line times to csv with column name 'frame_time' and use '#' as a comment character to ignore header
         #line_times.to_csv(os.path.join(output_dir, 'line_times.csv'), sep=',', index=False, header=['id','frame_time'], mode='w')
 
         # Save traj for current line times
-        line_traj = extract_line_data(in_data = sbet_csv_path ,line_times = line_times,in_type='traj')
-        write_csv(line_traj,os.path.join(out_dir, 'line_traj.csv'))
+        line_traj = extract_line_data(in_data = sbet_csv_path ,line_times = line_times,buffer_size=buffer_size,in_type='traj')
+        write_csv(line_traj,os.path.join(save_path, 'line_traj.csv'))
         #line_traj.to_csv(os.path.join(output_dir, 'line_traj.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
         # Save raw-imu for current line times
         if imu_data is not None:
-            line_imu = extract_line_data(in_data = imu_data,line_times = line_times,in_type='imu')
-            write_csv(line_imu,os.path.join(out_dir, 'line_imu.csv'))
+            line_imu = extract_line_data(in_data = imu_data,line_times = line_times,buffer_size=buffer_size,in_type='imu')
+            write_csv(line_imu,os.path.join(save_path, 'line_imu.csv'))
             #line_imu.to_csv(os.path.join(output_dir, 'line_imu.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
         print(f"Processed times,traj and imu line: {line.split('/')[-1]}")
 
         # Interpolate Line Poses and save
         if interp_poses:
-            line_poses = interpolate_line_poses_opt(traj=traj_data,line_times = line_times)
-            write_csv(line_poses,os.path.join(out_dir, 'line_poses.csv'))
+            line_poses = interpolate_line_poses_opt(traj=sbet_csv_path,line_times = line_times)
+            write_csv(line_poses,os.path.join(save_path, 'line_poses.csv'))
             #line_poses.to_csv(os.path.join(output_dir, 'line_poses.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
         print(f"Interpolated poses for line: {line.split('/')[-1]}")
 
 
-def main():
-    
-    
+def main(config_file):
     description = "Produce AVIRIS-4 Geo-rectification data for a given line file"
+    
+    # Create a ConfigParser object
+    config = configparser.ConfigParser()
+    
+    # Read the configuration file
+    print(f"Reading configuration file: {config_file}")
+    config.read(config_file)
 
+    # Initialize argparse without default values from config file
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument('mission_path', help='Path to dir containing sub-dir line files')
-    parser.add_argument('trajectory_path', help='Path to the trajectory file')
-    parser.add_argument('imu_path', help='Path to the raw IMU data')
-    parser.add_argument('--intp_pose', default=True, type=bool, help='Generate interpolated poses for given line times (default: True)')
-    parser.add_argument('--out_dir', default='line_data', help='Output directory (default: line_data)')
-    parser.add_argument('--ext', default='.bin', help='File extension (default: .bin)')
-   
+    
+    parser.add_argument('config_file', type=str, nargs='?', help='Path to dir containing sub-dir line files')
+    parser.add_argument('mission_path', type=str, nargs='?', help='Path to dir containing sub-dir line files')
+    parser.add_argument('trajectory_path', type=str, nargs='?', help='Path to the trajectory file')
+    parser.add_argument('--imu_path', help='Path to the raw IMU data')
+    parser.add_argument('--intp_pose', type=bool, help='Generate interpolated poses for given line times (default: True)')
+    parser.add_argument('--out_dir_name', help='Output directory (default: georect_data)')
+    parser.add_argument('--ext', help='Raw data file extension (default: .bin)')
+    parser.add_argument('--buffer_size', type=int, help='Time stamp buffer beyond min/max line time stamp (default: 1000)')
+
+    # Parse the command-line arguments (without defaults from config file)
     args = parser.parse_args()
-    if not args.mission_path or not args.trajectory_path or not args.imu_path:
+    
+    #Clear args.config_file
+    if args.config_file == config_file:
+        args.config_file = None
+
+    # Now update the arguments with defaults from the config file, if not provided on the command line
+    if not args.mission_path:
+        args.mission_path = config['PATHS'].get('mission_path')
+    if not args.trajectory_path:
+        args.trajectory_path = config['PATHS'].get('trajectory_path')
+    if not args.imu_path:
+        args.imu_path = config['PATHS'].get('imu_path')
+    if not args.intp_pose:
+        args.intp_pose = config['OPTIONS'].getboolean('interpolate_poses', True)
+    if not args.out_dir_name:
+        args.out_dir_name = config['OPTIONS'].get('out_dir_name', 'georect_data')
+    if not args.ext:
+        args.ext = config['OPTIONS'].get('raw_data_extension', '.bin')
+    if not args.buffer_size:
+        args.buffer_size = config['OPTIONS'].getint('time_stamp_buffer', 1000)
+
+    # Check if required arguments are provided
+    if not args.mission_path or not args.trajectory_path:
+        print("Mission path and trajectory path must be provided either in config file or command line.")
         parser.print_help()
         exit(1)
 
-    #if len(args) < 3:
-    #    print('Example usage: python av4-extract-time-pose [path/to/mission-dir/]  [/path/to/trajectory_file]'\
-    #          '[/path/to/imu_file] --int-pose False --out-dir L1-geo-data --ext [default .bin]')
-    
-
-    # AV4_process_geo_files(in_path,traj_data,imu_data=None,interp_poses = True, output_dir='line_data',extension=".bin"):
+    # Call your data extraction function
     av4_extract_time_pose(
         in_path=args.mission_path,
         traj_data=args.trajectory_path,
         imu_data=args.imu_path,
         interp_poses=args.intp_pose,
-        out_dir=args.out_dir,
-        extension=args.ext
+        data_dir=args.out_dir_name,
+        extension=args.ext,
+        buffer_size=args.buffer_size
     )
 
 
 if __name__ == '__main__':
+    # Set up the argument parser for the config file
+    parser = argparse.ArgumentParser(description='Specify the config file.')
+    parser.add_argument('conf_file', type=str, help='Path to the configuration file')
+
+    # Parse the config file argument
+    #args = parser.parse_args()
+
+    # Call the main function with the specified config file
+    #main(args.conf_file)
+    main('av4-extract-time-pose.ini')
      
-    main()
-
-
-
-    #raw_image_path = '/Volumes/workspace/common/PROJECTS/AIS/AVIRIS_4/AV4_Missions/24_07_Campaigns/20-7-24-AV4Flights/M002_240720_CHE-Thun/raw_lines/raw_data/L101/101_locked'
-    #traj_path= '/Volumes/workspace/common/PROJECTS/AIS/AVIRIS_4/AV4_Missions/24_07_Campaigns/20-7-24-AV4Flights/Atlans_Traj/03_processed/AV4_Thun_Test_2/Atlans_A7-20240720-100407_Thun_sbet_10usec_200Hz.csv'
-    #raw_imu_path = '/Volumes/workspace/common/PROJECTS/AIS/AVIRIS_4/AV4_Missions/24_07_Campaigns/20-7-24-AV4Flights/Atlans_Traj/03_processed/AV4_Thun_20_7_24_Traj/THUN-Atlans_A7-20240720-100407_POSTPROCESSING_raw_IMU.txt'
-    
-    # Function to read values from a text file
-    #AV4_process_geo_files(raw_image_path,traj_path,extension='.bin')
-
-
-    
 
         
