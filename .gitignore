@@ -1,0 +1,15 @@
+# Ignore all .log files
+*.log
+
+# Ignor .csv, .txt files
+*.csv
+*.txt
+
+#ignore debug dir
+debug/
+
+# Ignore the node_modules directory
+node_modules/
+
+# Ignore a specific file
+config.json
