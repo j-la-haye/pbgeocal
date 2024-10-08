@@ -7,7 +7,7 @@ import glob
 import argparse
 from bisect import bisect_left
 from pathlib import Path
-
+import Sbet
  
 def write_csv(input_df,output_file):
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -67,7 +67,7 @@ def AV4_parse_line_times(cpp_file, input_file=None):
     
     # Create a pandas DataFrame with data in one column and frame number starting from 1 to len(data) in the other column
     frame_numbers = list(range(1, len(data) + 1))
-    frame_times = pd.DataFrame({"frame_id": frame_numbers, "GPS_sod(10usec)": [item[0] for item in data]})
+    frame_times = pd.DataFrame({"frame_id": frame_numbers, "tod(10usec)": [item[0] for item in data]})
     
     return frame_times
 
@@ -212,8 +212,11 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
     return line_poses
 
 def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True, out_dir='line_data',extension=".bin"):
-    #Write an example usage for this function how to call it from the terminal 
-
+    
+    sbet = Sbet(traj_data)
+    sbet_csv_path = os.path.join(out_dir,'Atlans_A7-real_time_traj_NED_10usec.csv')
+    sbet.saveSbet2csv(sbet_csv_path)
+    
     #Create a list of the paths to all the raw data '.bin' files in the subdirectories of in_path
     if not os.access(in_path, os.R_OK):
         print(f"No read permissions for {in_path}")
@@ -230,7 +233,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True, o
         
     for line in line_files:
         
-        #create new 'poses' directory in the line directory to store the interpolated poses
+        #create new 'output' directory in the line directory to store the interpolated poses
         out_dir = os.path.join(os.path.dirname(line), out_dir)
         
         #check if the output directory exists, if not create it
@@ -243,7 +246,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True, o
         #line_times.to_csv(os.path.join(output_dir, 'line_times.csv'), sep=',', index=False, header=['id','frame_time'], mode='w')
 
         # Save traj for current line times
-        line_traj = extract_line_data(in_data = traj_data,line_times = line_times,in_type='traj')
+        line_traj = extract_line_data(in_data = sbet_csv_path ,line_times = line_times,in_type='traj')
         write_csv(line_traj,os.path.join(out_dir, 'line_traj.csv'))
         #line_traj.to_csv(os.path.join(output_dir, 'line_traj.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
