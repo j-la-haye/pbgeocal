@@ -276,9 +276,9 @@ def main(config_file):
     # Initialize argparse without default values from config file
     parser = argparse.ArgumentParser(description=description)
     
-    parser.add_argument('config_file', type=str, nargs='?', help='Path to dir containing sub-dir line files')
     parser.add_argument('mission_path', type=str, nargs='?', help='Path to dir containing sub-dir line files')
     parser.add_argument('trajectory_path', type=str, nargs='?', help='Path to the trajectory file')
+    parser.add_argument('--config', type=str, help='Path to dir containing sub-dir line files')
     parser.add_argument('--imu_path', help='Path to the raw IMU data')
     parser.add_argument('--intp_pose', type=bool, help='Generate interpolated poses for given line times (default: True)')
     parser.add_argument('--out_dir_name', help='Output directory (default: georect_data)')
@@ -329,14 +329,14 @@ def main(config_file):
 if __name__ == '__main__':
     # Set up the argument parser for the config file
     parser = argparse.ArgumentParser(description='Specify the config file.')
-    parser.add_argument('conf_file', type=str, help='Path to the configuration file')
+    parser.add_argument('--config', type=str, help='Path to the configuration file')
 
     # Parse the config file argument
-    #args = parser.parse_args()
+    args = parser.parse_args()
 
     # Call the main function with the specified config file
-    #main(args.conf_file)
-    main('av4-extract-time-pose.ini')
+    main(args.config)
+    
      
 
         
