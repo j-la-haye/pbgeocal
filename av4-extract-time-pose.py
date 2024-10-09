@@ -80,7 +80,7 @@ def find_traj_index(traj_times, line_time):
 		i += 1
 	return i
 
-def extract_line_data(in_data, line_times, buffer_size=100,in_type=['traj','imu']): 
+def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj','imu']): 
     
     if in_type == 'traj':
         #time_10usec,latitude,longitude,altitude,roll,pitch,heading,'x_vel,y_vel,z_vel\n')
@@ -91,18 +91,24 @@ def extract_line_data(in_data, line_times, buffer_size=100,in_type=['traj','imu'
         input_df['time'] = input_df['time']*1e5
         
     
-    # convert line_times['tod(10usec)'] to a list and covert each element to a float
-    line_times = np.array(line_times['tod(10usec)'], dtype=np.int32)
+    # convert line_times['tod(10usec)'] to a list and covert each element to an int
+
+    line_times = np.array(extracted_times['tod(10usec)'], dtype=np.int64)
     #line_times = [int(time) for time in line_times['GPS_sod(10usec)']]
 
     #Save line trajectory/imu data 
-    idx_min = bisect_left(input_df['time'], line_times[0])
+    idx_min = bisect_left(input_df['time'], line_times[0]) - 1
     idx_max = bisect_left(input_df['time'], line_times[-1])
     
     traj_min = max(idx_min - buffer_size, 0)
     traj_max = min(idx_max + buffer_size, len(input_df['time'])-1)
 
     line_data = input_df.loc[traj_min:traj_max] #.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')
+
+    #assert that line_times[0] > input_df['time'].iloc[idx_min] and line_times[-1] < input_df['time'].iloc[idx_max]
+    # Assuming line_times is a list or a Series, and input_df is the DataFrame with the 'time' column
+    assert line_times[0] > input_df['time'].iloc[idx_min], "Assertion failed: line_times[0] is not greater than input_df['time'].iloc[idx_min]"
+    assert line_times[-1] < input_df['time'].iloc[idx_max], "Assertion failed: line_times[-1] is not less than input_df['time'].iloc[idx_max]"
 
     return line_data
 
@@ -203,13 +209,15 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
     
     return line_poses
 
-def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True, buffer_size=1000,data_dir='line_data',extension=".bin",out_traj='Atlans_sbet_NED_tod_10usec.csv'):
+def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,parse_sbet=True,sbet_deg=True,buffer_size=1000,data_dir='line_data',extension=".bin",out_traj='Atlans_sbet_NED_tod_10usec.csv'):
     
-    sbet = Sbet(traj_data)
-    
-    sbet_csv_path = sbet_csv_path = traj_data.split('.')[0]+'.csv'
-    print(f"Parsing SBET and saving to csv: {sbet_csv_path}")
-    sbet.saveSbet2csv(sbet_csv_path)
+    if parse_sbet:
+        sbet = Sbet(traj_data,sbet_deg)
+        sbet_csv_path = sbet_csv_path = traj_data.split('.')[0]+'.csv'
+        print(f"Parsing SBET and saving to csv: {sbet_csv_path}")
+        sbet.saveSbet2csv(sbet_csv_path)
+    else:
+        sbet_csv_path = sbet_csv_path = traj_data.split('.')[0]+'.csv'
     
     in_path = Path(in_path)
     
@@ -242,13 +250,13 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True, b
         #line_times.to_csv(os.path.join(output_dir, 'line_times.csv'), sep=',', index=False, header=['id','frame_time'], mode='w')
 
         # Save traj for current line times
-        line_traj = extract_line_data(in_data = sbet_csv_path ,line_times = line_times,buffer_size=buffer_size,in_type='traj')
+        line_traj = extract_line_data(in_data = sbet_csv_path ,extracted_times = line_times,buffer_size=buffer_size,in_type='traj')
         write_csv(line_traj,os.path.join(save_path, 'line_traj.csv'))
         #line_traj.to_csv(os.path.join(output_dir, 'line_traj.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
         # Save raw-imu for current line times
         if imu_data is not None:
-            line_imu = extract_line_data(in_data = imu_data,line_times = line_times,buffer_size=buffer_size,in_type='imu')
+            line_imu = extract_line_data(in_data = imu_data,extracted_times = line_times,buffer_size=buffer_size,in_type='imu')
             write_csv(line_imu,os.path.join(save_path, 'line_imu.csv'))
             #line_imu.to_csv(os.path.join(output_dir, 'line_imu.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
@@ -281,6 +289,8 @@ def main(config_file):
     parser.add_argument('--config', type=str, help='Path to dir containing sub-dir line files')
     parser.add_argument('--imu_path', help='Path to the raw IMU data')
     parser.add_argument('--intp_pose', type=bool, help='Generate interpolated poses for given line times (default: True)')
+    parser.add_argument('--parse_sbet', help='parse input sbet.out file (default: True)')
+    parser.add_argument('--sbet_deg', type=bool,help='convert sbet to deg or leave in radians (default:True)')
     parser.add_argument('--out_dir_name', help='Output directory (default: georect_data)')
     parser.add_argument('--ext', help='Raw data file extension (default: .bin)')
     parser.add_argument('--buffer_size', type=int, help='Time stamp buffer beyond min/max line time stamp (default: 1000)')
@@ -289,10 +299,10 @@ def main(config_file):
     args = parser.parse_args()
     
     #Clear args.config_file
-    if args.config_file == config_file:
+    if args.config == config_file:
         args.config_file = None
 
-    # Now update the arguments with defaults from the config file, if not provided on the command line
+    # Update the arguments with defaults from the config file, if not provided on the command line
     if not args.mission_path:
         args.mission_path = config['PATHS'].get('mission_path')
     if not args.trajectory_path:
@@ -301,6 +311,10 @@ def main(config_file):
         args.imu_path = config['PATHS'].get('imu_path')
     if not args.intp_pose:
         args.intp_pose = config['OPTIONS'].getboolean('interpolate_poses', True)
+    if not args.parse_sbet:
+        args.parse_sbet = config['OPTIONS'].getboolean('parse_sbet', True)
+    if not args.sbet_deg:
+        args.sbet_deg = config['OPTIONS'].getboolean('sbet_deg', True)
     if not args.out_dir_name:
         args.out_dir_name = config['OPTIONS'].get('out_dir_name', 'georect_data')
     if not args.ext:
@@ -314,12 +328,14 @@ def main(config_file):
         parser.print_help()
         exit(1)
 
-    # Call your data extraction function
+    # Call data extraction function
     av4_extract_time_pose(
         in_path=args.mission_path,
         traj_data=args.trajectory_path,
         imu_data=args.imu_path,
         interp_poses=args.intp_pose,
+        parse_sbet=args.parse_sbet,
+        sbet_deg=args.sbet_deg,
         data_dir=args.out_dir_name,
         extension=args.ext,
         buffer_size=args.buffer_size
@@ -336,6 +352,7 @@ if __name__ == '__main__':
 
     # Call the main function with the specified config file
     main(args.config)
+   
     
      
 

@@ -11,7 +11,9 @@ field_names = ('time', 'latitude', 'longitude', 'altitude', \
           'x_angular_rate', 'y_angular_rate', 'z_angular')
 
 class Sbet(object):
-    def __init__(self, filename):
+    #add option to convert to deg or not 
+
+    def __init__(self, filename, deg=True):
         with open(filename, 'rb') as sbet_file:
             self.data = sbet_file.read()
         #sbet_file = open(filename)
@@ -22,16 +24,20 @@ class Sbet(object):
 
         self.num_datagrams = len(self.data) / datagram_size
 
-    def decode(self, offset=0):
+    def decode(self, offset=0,deg=True):
         'Return a dictionary for an SBet datagram starting at offset'
 
         values = struct.unpack('17d',self.data[ offset : offset+datagram_size ])
 
         sbet_values = dict(zip (field_names, values))
 
-        sbet_values['lat_deg'] = math.degrees(sbet_values['latitude'])
-        sbet_values['lon_deg'] = math.degrees(sbet_values['longitude'])
-        sbet_values['time_10usec'] = sbet_values['time'] * 1e5
+        if deg:
+            sbet_values['lat_deg'] = math.degrees(sbet_values['latitude'])
+            sbet_values['lon_deg'] = math.degrees(sbet_values['longitude'])
+            sbet_values['roll'] = math.degrees(sbet_values['roll'])
+            sbet_values['pitch'] = math.degrees(sbet_values['pitch'])
+            sbet_values['heading'] = math.degrees(sbet_values['heading'])
+            sbet_values['time_10usec'] = sbet_values['time'] * 1e5
 
         return sbet_values
     
@@ -90,7 +96,7 @@ class Sbet(object):
 def main():
     print('Datagram Number, Time, x, y')
 
-    sbet = Sbet('av_4_ortho_rect/Test_SBET/Atlans_A7-20240720-100407_Thun_POSTPROCESSING_V2_SBET_TOD.out')
+    sbet = Sbet('av_4_ortho_rect/Test_SBET/Atlans_A7-20240720-100407_Thun_POSTPROCESSING_V2_SBET_TOD.out',deg=True)
     # for datagram in sbet:
     #     #print(datagram['time_10usec'],datagram['lon_deg'], datagram['lat_deg'])
     #     #print time_10usec with 3 decimal places
