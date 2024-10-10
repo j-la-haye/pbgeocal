@@ -290,10 +290,10 @@ def main(config_file):
     parser.add_argument('--imu_path', help='Path to the raw IMU data')
     parser.add_argument('--intp_pose', type=bool, help='Generate interpolated poses for given line times (default: True)')
     parser.add_argument('--parse_sbet', help='parse input sbet.out file (default: True)')
-    parser.add_argument('--sbet_deg', type=bool,help='convert sbet to deg or leave in radians (default:True)')
-    parser.add_argument('--out_dir_name', help='Output directory (default: georect_data)')
-    parser.add_argument('--ext', help='Raw data file extension (default: .bin)')
-    parser.add_argument('--buffer_size', type=int, help='Time stamp buffer beyond min/max line time stamp (default: 1000)')
+    parser.add_argument('--sbet_deg',default=True, type=bool,help='convert sbet to deg or leave in radians (default:True)')
+    parser.add_argument('--out_dir_name', default='geo_rect_data', help='Output directory (default: georect_data)')
+    parser.add_argument('--ext',default='.bin', help='Raw data file extension (default: .bin)')
+    parser.add_argument('--buffer_size',default=1000, type=int, help='Time stamp buffer beyond min/max line time stamp (default: 1000)')
 
     # Parse the command-line arguments (without defaults from config file)
     args = parser.parse_args()
@@ -302,26 +302,20 @@ def main(config_file):
     if args.config == config_file:
         args.config_file = None
 
-    # Update the arguments with defaults from the config file, if not provided on the command line
-    if not args.mission_path:
-        args.mission_path = config['PATHS'].get('mission_path')
-    if not args.trajectory_path:
-        args.trajectory_path = config['PATHS'].get('trajectory_path')
-    if not args.imu_path:
-        args.imu_path = config['PATHS'].get('imu_path')
-    if not args.intp_pose:
-        args.intp_pose = config['OPTIONS'].getboolean('interpolate_poses', True)
-    if not args.parse_sbet:
-        args.parse_sbet = config['OPTIONS'].getboolean('parse_sbet', True)
-    if not args.sbet_deg:
-        args.sbet_deg = config['OPTIONS'].getboolean('sbet_deg', True)
-    if not args.out_dir_name:
-        args.out_dir_name = config['OPTIONS'].get('out_dir_name', 'georect_data')
-    if not args.ext:
-        args.ext = config['OPTIONS'].get('raw_data_extension', '.bin')
-    if not args.buffer_size:
-        args.buffer_size = config['OPTIONS'].getint('time_stamp_buffer', 1000)
+    #print Keys in config file
 
+    print(config.keys())
+    print(config.sections())
+    
+
+    # Update the arguments with defaults from the config file, if not provided on the command line
+    if not args.mission_path and config.has_section('PATHS') and config.has_option('PATHS', 'path_to_mission'):
+        args.mission_path = config['PATHS'].get('path_to_mission')
+    if not args.trajectory_path and config.has_section('PATHS') and config.has_option('PATHS', 'trajectory_path'):
+        args.trajectory_path = config['PATHS'].get('trajectory_path')
+    if not args.out_dir_name and config.has_section('PATHS') and config.has_option('PATHS', 'output_dir_name'):
+        args.trajectory_path = config['PATHS'].get('output_dir_name')
+    
     # Check if required arguments are provided
     if not args.mission_path or not args.trajectory_path:
         print("Mission path and trajectory path must be provided either in config file or command line.")
@@ -351,7 +345,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Call the main function with the specified config file
-    main(args.config)
+    main('config.ini') if not args.config else main(args.config)
    
     
      
