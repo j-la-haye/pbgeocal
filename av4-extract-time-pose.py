@@ -15,8 +15,6 @@ def write_csv(input_df,output_file):
     with open(output_file, 'w', encoding='utf-8') as f:
             # Write the column headers to the file
             f.write('#'+'\t'.join(input_df.columns.tolist()) + '\n')
-            #imu.iloc[::200,:].to_csv(f, index=False, header=False, sep='\t')
-            #new_df.iloc[:, :7].round(6).to_csv(f, index=False, header=True, sep=',')
             input_df.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')    
 
 def read_file(file_path):
@@ -217,7 +215,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         print(f"Parsing SBET and saving to csv: {sbet_csv_path}")
         sbet.saveSbet2csv(sbet_csv_path)
     else:
-        sbet_csv_path = sbet_csv_path = traj_data.split('.')[0]+'.csv'
+        sbet_csv_path = traj_data
     
     in_path = Path(in_path)
     
@@ -246,8 +244,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         av4_time_reader = 'extract-av4-line-times.cpp'
         line_times = AV4_parse_line_times(av4_time_reader, line)
         write_csv(line_times,os.path.join(save_path, 'line_times.csv'))
-        #Write the line times to csv with column name 'frame_time' and use '#' as a comment character to ignore header
-        #line_times.to_csv(os.path.join(output_dir, 'line_times.csv'), sep=',', index=False, header=['id','frame_time'], mode='w')
+        
 
         # Save traj for current line times
         line_traj = extract_line_data(in_data = sbet_csv_path ,extracted_times = line_times,buffer_size=buffer_size,in_type='traj')
