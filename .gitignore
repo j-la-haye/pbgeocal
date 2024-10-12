@@ -4,6 +4,8 @@
 # Ignor .csv, .txt files
 *.csv
 *.txt
+*.bin
+
 
 #ignore debug dir
 debug/

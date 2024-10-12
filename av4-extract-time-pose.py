@@ -12,6 +12,8 @@ from Sbet import Sbet
 
  
 def write_csv(input_df,output_file):
+    #if not os.path.exists(output_file):
+    #    os.makedirs(output_file)
     with open(output_file, 'w', encoding='utf-8') as f:
             # Write the column headers to the file
             f.write('#'+'\t'.join(input_df.columns.tolist()) + '\n')
@@ -207,7 +209,7 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
     
     return line_poses
 
-def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,parse_sbet=True,sbet_deg=True,buffer_size=1000,data_dir='line_data',extension=".bin",out_traj='Atlans_sbet_NED_tod_10usec.csv'):
+def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,parse_sbet=True,sbet_deg=True,buffer_size=1000,extension=".bin",out_traj='Atlans_sbet_NED_tod_10usec.csv'):
     
     if parse_sbet:
         sbet = Sbet(traj_data,sbet_deg)
@@ -235,26 +237,28 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         
     for line in line_files:
         print(f"Processing line {line.split('/')[-1]}")
-        #create new 'output' directory in the line directory to store the interpolated poses
-        save_path = os.path.join(os.path.dirname(line), data_dir)
+        #create new 'output' directory in the line directory to store files for line times
+        times_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_times.csv')
         
         #check if the output directory exists, if not create it
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
+        #if not os.path.exists(save_path):
+        #    os.makedirs(save_path)
         av4_time_reader = 'extract-av4-line-times.cpp'
         line_times = AV4_parse_line_times(av4_time_reader, line)
-        write_csv(line_times,os.path.join(save_path, 'line_times.csv'))
+        write_csv(line_times,times_path)
         
 
         # Save traj for current line times
         line_traj = extract_line_data(in_data = sbet_csv_path ,extracted_times = line_times,buffer_size=buffer_size,in_type='traj')
-        write_csv(line_traj,os.path.join(save_path, 'line_traj.csv'))
+        traj_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_traj.csv')
+        write_csv(line_traj,traj_path)
         #line_traj.to_csv(os.path.join(output_dir, 'line_traj.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
         # Save raw-imu for current line times
         if imu_data is not None:
             line_imu = extract_line_data(in_data = imu_data,extracted_times = line_times,buffer_size=buffer_size,in_type='imu')
-            write_csv(line_imu,os.path.join(save_path, 'line_imu.csv'))
+            imu_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_imu.csv')
+            write_csv(line_imu,imu_path)
             #line_imu.to_csv(os.path.join(output_dir, 'line_imu.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
         print(f"Processed times,traj and imu line: {line.split('/')[-1]}")
@@ -262,7 +266,8 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         # Interpolate Line Poses and save
         if interp_poses:
             line_poses = interpolate_line_poses_opt(traj=sbet_csv_path,line_times = line_times)
-            write_csv(line_poses,os.path.join(save_path, 'line_poses.csv'))
+            imu_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_imu.csv')
+            write_csv(line_poses,imu_path)
             #line_poses.to_csv(os.path.join(output_dir, 'line_poses.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
         print(f"Interpolated poses for line: {line.split('/')[-1]}")
@@ -278,6 +283,7 @@ def main(config_file):
     print(f"Reading configuration file: {config_file}")
     config.read(config_file)
 
+    
     # Initialize argparse without default values from config file
     parser = argparse.ArgumentParser(description=description)
     
@@ -288,31 +294,43 @@ def main(config_file):
     parser.add_argument('--intp_pose', type=bool, help='Generate interpolated poses for given line times (default: True)')
     parser.add_argument('--parse_sbet', help='parse input sbet.out file (default: True)')
     parser.add_argument('--sbet_deg',default=True, type=bool,help='convert sbet to deg or leave in radians (default:True)')
-    parser.add_argument('--out_dir_name', default='geo_rect_data', help='Output directory (default: georect_data)')
+    #parser.add_argument('--out_dir_name', default='geo_rect_data', help='Output directory (default: georect_data)')
     parser.add_argument('--ext',default='.bin', help='Raw data file extension (default: .bin)')
     parser.add_argument('--buffer_size',default=1000, type=int, help='Time stamp buffer beyond min/max line time stamp (default: 1000)')
 
     # Parse the command-line arguments (without defaults from config file)
     args = parser.parse_args()
     
-    #Clear args.config_file
-    if args.config == config_file:
-        args.config_file = None
-
     #print Keys in config file
 
     print(config.keys())
     print(config.sections())
     
-
     # Update the arguments with defaults from the config file, if not provided on the command line
     if not args.mission_path and config.has_section('PATHS') and config.has_option('PATHS', 'path_to_mission'):
         args.mission_path = config['PATHS'].get('path_to_mission')
     if not args.trajectory_path and config.has_section('PATHS') and config.has_option('PATHS', 'trajectory_path'):
         args.trajectory_path = config['PATHS'].get('trajectory_path')
-    if not args.out_dir_name and config.has_section('PATHS') and config.has_option('PATHS', 'output_dir_name'):
-        args.trajectory_path = config['PATHS'].get('output_dir_name')
-    
+    #if not args.out_dir_name and config.has_section('PATHS') and config.has_option('PATHS', 'output_dir_name'):
+    #    args.out_dir_name = config['PATHS'].get('output_dir_name')
+    if not args.imu_path and config.has_section('PATHS') and config.has_option('PATHS', 'imu_path'):
+        args.imu_path = config['PATHS'].get('imu_path')
+    if not args.intp_pose and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'interpolate_poses'):
+        args.intp_pose = config['OPTIONS'].getboolean('interpolate_poses')
+    if not args.parse_sbet and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'parse_sbet'):
+        args.parse_sbet = config['OPTIONS'].getboolean('parse_sbet')
+    if not args.sbet_deg and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'sbet_deg'):
+        args.sbet_deg = config['OPTIONS'].getboolean('sbet_deg')
+    if not args.ext and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'extension'):
+        args.ext = config['OPTIONS'].get('extension')
+    if not args.buffer_size and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'buffer_size'):
+        args.buffer_size = config['OPTIONS'].getint('buffer_size')
+
+    #Clear args.config_file
+    if args.config == config_file:
+        args.config_file = None
+
+
     # Check if required arguments are provided
     if not args.mission_path or not args.trajectory_path:
         print("Mission path and trajectory path must be provided either in config file or command line.")
@@ -327,7 +345,6 @@ def main(config_file):
         interp_poses=args.intp_pose,
         parse_sbet=args.parse_sbet,
         sbet_deg=args.sbet_deg,
-        data_dir=args.out_dir_name,
         extension=args.ext,
         buffer_size=args.buffer_size
     )
