@@ -12,8 +12,8 @@ from Sbet import Sbet
 
  
 def write_csv(input_df,output_file):
-    if not os.path.exists(output_file):
-        os.makedirs(output_file)
+    #if not os.path.exists(output_file):
+    #    os.makedirs(output_file)
     with open(output_file, 'w', encoding='utf-8') as f:
             # Write the column headers to the file
             f.write('#'+'\t'.join(input_df.columns.tolist()) + '\n')
@@ -80,11 +80,14 @@ def find_traj_index(traj_times, line_time):
 		i += 1
 	return i
 
-def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj','imu']): 
+def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj','imu','times']): 
     
     if in_type == 'traj':
         #time_10usec,latitude,longitude,altitude,roll,pitch,heading,'x_vel,y_vel,z_vel\n')
-        input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','y', 'vel_x', 'vel_y','vel_z']) 
+        if type(in_data) == pd.DataFrame:
+            input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','y', 'vel_x', 'vel_y','vel_z'])
+        else:
+            input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','y', 'vel_x', 'vel_y','vel_z']) 
     elif in_type == 'imu':
         input_df = pd.read_csv(in_data, encoding='utf-8', sep='\t',comment='#',names=['time','gyro1','gyro2','gyro3','acc1','acc2','acc3','sensorStatus'])
         input_df = input_df.drop(columns=['sensorStatus'])
@@ -107,8 +110,8 @@ def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj',
 
     #assert that line_times[0] > input_df['time'].iloc[idx_min] and line_times[-1] < input_df['time'].iloc[idx_max]
     # Assuming line_times is a list or a Series, and input_df is the DataFrame with the 'time' column
-    assert line_times[0] > input_df['time'].iloc[idx_min], "Assertion failed: line_times[0] is not greater than input_df['time'].iloc[idx_min]"
-    assert line_times[-1] < input_df['time'].iloc[idx_max], "Assertion failed: line_times[-1] is not less than input_df['time'].iloc[idx_max]"
+    assert line_times[0] > input_df['time'].iloc[idx_min], "Assertion failed: first line time stamp is not after the trajectory['time'] at [idx_min]"
+    assert line_times[-1] < input_df['time'].iloc[idx_max], "Assertion failed: line_times[-1] is not less than trajectory['time'] at [idx_max]"
 
     return line_data
 
@@ -209,7 +212,100 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
     
     return line_poses
 
-def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,parse_sbet=True,sbet_deg=True,buffer_size=1000,extension=".bin",out_traj='Atlans_sbet_NED_tod_10usec.csv'):
+def extract_multi_line_data(in_path,traj_data,imu_data=None,interp_poses = True,parse_sbet=False,sbet_deg=True,buffer_size=1000,extension=".bin"):
+
+    if parse_sbet:
+        sbet = Sbet(traj_data,sbet_deg)
+        sbet_csv_path = sbet_csv_path = traj_data.split('.')[0]+'.csv'
+        print(f"Parsing SBET and saving to csv: {sbet_csv_path}")
+        sbet.saveSbet2csv(sbet_csv_path)
+    else:
+        sbet_csv_path = traj_data
+    
+    in_path = Path(in_path)
+    
+    # check if the input path is a directory
+    if not os.path.isdir(in_path):
+        print(f"Input path {in_path} is not a directory")
+        return
+    # check if the input is readable
+    if not os.access(in_path, os.R_OK):
+        print(f"No read permissions for {in_path}")
+        return
+
+    #Create a list of the paths to all the raw data '.bin' files in the subdirectories of in_path
+    #line_files = glob.glob(os.path.join(in_path, f"**/*{extension}"), recursive=True) 
+    #print(f"Found {len(line_files)} line files in {in_path}")
+    #print(line_files)
+    
+    #all_times = []
+    #combine single column "tod(10usec)"of multiple csv files with common headers into a single sorted list
+   # all_times = pd.DataFrame()
+   # for file in glob.glob(os.path.join(in_path, f"**/*{'_times.csv'}"), recursive=True):
+   #     all_times.concat([pd.read_csv(file, encoding='utf-8', sep=',', comment='#', names=['frame',"tod(10usec)"])]).sort_values(by="tod(10usec)").reset_index(drop=True)
+    
+    lines =  glob.glob(os.path.join(in_path, f"**/*{'_times.csv'}"), recursive=True)
+    lines_times = pd.concat(
+        [pd.read_csv(file, encoding='utf-8', sep=',', comment='#', names=['frm',"tod(10usec)"],usecols=[1]) 
+         for file in glob.glob(os.path.join(in_path, f"**/*{'_times.csv'}"), recursive=True)]
+    ).sort_values(by="tod(10usec)").reset_index(drop=True)
+
+    n_lines_traj = extract_line_data(in_data = sbet_csv_path ,extracted_times = lines_times,buffer_size=buffer_size,in_type='traj')
+
+    # Save traj for current line times
+
+    #line_dirs = [os.path.basename(os.path.dirname(line)) for line in lines]
+    line_names = [line.split('/')[-2] for line in lines]
+    traj_path = os.path.join(os.path.dirname(in_path), 'RawDataCube_' + '_'.join(line_names) + '_traj.csv')
+    write_csv(n_lines_traj,traj_path)
+        #line_traj.to_csv(os.path.join(output_dir, 'line_traj.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
+
+    # Save raw-imu for current line times
+    if imu_data is not None:
+        n_lines_imu = extract_line_data(in_data = imu_data ,extracted_times = lines_times,buffer_size=buffer_size,in_type='imu')
+        imu_path = os.path.join(os.path.dirname(in_path), 'RawDataCube_' + '_'.join(line_names) + '_imu.csv')
+        write_csv(n_lines_imu,imu_path)
+            #line_imu.to_csv(os.path.join(output_dir, 'line_imu.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
+
+        print(f"Processed times,traj and imu lines: {'RawDataCube_' + '_'.join(line_names)}")
+
+    # Interpolate Line Poses and save
+    if interp_poses:
+        line_poses = interpolate_line_poses_opt(traj=sbet_csv_path,line_times = lines_times)
+        poses_path = os.path.join(os.path.dirname(in_path), 'RawDataCube_' + '_'.join(line_names) + '_poses.csv')
+        write_csv(line_poses,poses_path)
+            #line_poses.to_csv(os.path.join(output_dir, 'line_poses.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
+        # Save raw-imu for current
+        print(f"Interpolated poses for lines: {'RawDataCube' + '_'.join(line_names)}")
+
+def get_text_files(directory,extension):
+    text_files = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            if file.endswith(extension):
+                text_files.append(os.path.join(root, file))
+    return text_files
+
+def combine_timing_files(in_path,out_path,extension):
+    # Read values from all timing files and combine them into a single list
+	        
+    text_files = get_text_files(in_path,extension)
+    all_values = []
+    for file_path in text_files:
+        values = read_file(file_path)
+        all_values.extend(values)
+
+    # Sort the list of values in ascending order
+    all_values.sort()
+	#convert the values to utf-8 integers
+    all_values = [int(value) for value in all_values]
+
+	# Save the combined frame_times to a new file with column name 'frame_time'
+    frame_times = pd.DataFrame(all_values, columns=['# frame_time'])
+    out_file = os.path.join(out_path, 'combined_times.txt')
+    frame_times.to_csv(out_file, sep='\t', index=False)
+
+def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,parse_sbet=True,sbet_deg=True,buffer_size=1000,extension=".bin"):
     
     if parse_sbet:
         sbet = Sbet(traj_data,sbet_deg)
@@ -252,6 +348,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         line_traj = extract_line_data(in_data = sbet_csv_path ,extracted_times = line_times,buffer_size=buffer_size,in_type='traj')
         traj_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_traj.csv')
         write_csv(line_traj,traj_path)
+        #line_traj.to_csv(os.path.join(output_dir, 'line_traj.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
         # Save raw-imu for current line times
         if imu_data is not None:
@@ -260,16 +357,16 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
             write_csv(line_imu,imu_path)
             #line_imu.to_csv(os.path.join(output_dir, 'line_imu.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
-            print(f"Processed times,traj and imu line: {line.split('/')[-1]}")
+        print(f"Processed times,traj and imu line: {line.split('/')[-1]}")
 
         # Interpolate Line Poses and save
         if interp_poses:
             line_poses = interpolate_line_poses_opt(traj=sbet_csv_path,line_times = line_times)
-            poses_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_poses.csv')
-            write_csv(line_poses,poses_path)
+            imu_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_imu.csv')
+            write_csv(line_poses,imu_path)
             #line_poses.to_csv(os.path.join(output_dir, 'line_poses.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
-            print(f"Interpolated poses for line: {line.split('/')[-1]}")
+        print(f"Interpolated poses for line: {line.split('/')[-1]}")
 
 
 def main(config_file):
@@ -293,6 +390,7 @@ def main(config_file):
     parser.add_argument('--intp_pose', type=bool, help='Generate interpolated poses for given line times (default: True)')
     parser.add_argument('--parse_sbet', help='parse input sbet.out file (default: True)')
     parser.add_argument('--sbet_deg',default=True, type=bool,help='convert sbet to deg or leave in radians (default:True)')
+    #parser.add_argument('--out_dir_name', default='geo_rect_data', help='Output directory (default: georect_data)')
     parser.add_argument('--ext',default='.bin', help='Raw data file extension (default: .bin)')
     parser.add_argument('--buffer_size',default=1000, type=int, help='Time stamp buffer beyond min/max line time stamp (default: 1000)')
 
@@ -309,6 +407,8 @@ def main(config_file):
         args.mission_path = config['PATHS'].get('path_to_mission')
     if not args.trajectory_path and config.has_section('PATHS') and config.has_option('PATHS', 'trajectory_path'):
         args.trajectory_path = config['PATHS'].get('trajectory_path')
+    #if not args.out_dir_name and config.has_section('PATHS') and config.has_option('PATHS', 'output_dir_name'):
+    #    args.out_dir_name = config['PATHS'].get('output_dir_name')
     if not args.imu_path and config.has_section('PATHS') and config.has_option('PATHS', 'imu_path'):
         args.imu_path = config['PATHS'].get('imu_path')
     if not args.intp_pose and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'interpolate_poses'):
@@ -334,7 +434,17 @@ def main(config_file):
         exit(1)
 
     # Call data extraction function
-    av4_extract_time_pose(
+    #av4_extract_time_pose(
+    #     in_path=args.mission_path,
+    #     traj_data=args.trajectory_path,
+    #     imu_data=args.imu_path,
+    #     interp_poses=args.intp_pose,
+    #     parse_sbet=args.parse_sbet,
+    #     sbet_deg=args.sbet_deg,
+    #     extension=args.ext,
+    #     buffer_size=args.buffer_size
+    # )
+    extract_multi_line_data(
         in_path=args.mission_path,
         traj_data=args.trajectory_path,
         imu_data=args.imu_path,
@@ -355,7 +465,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Call the main function with the specified config file
-    main('config.ini') if not args.config else main(args.config)
+    main('av4-extract-time-pose.ini') if not args.config else main(args.config)
    
     
      
