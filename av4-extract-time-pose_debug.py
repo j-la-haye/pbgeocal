@@ -434,17 +434,7 @@ def main(config_file):
         exit(1)
 
     # Call data extraction function
-    #av4_extract_time_pose(
-    #     in_path=args.mission_path,
-    #     traj_data=args.trajectory_path,
-    #     imu_data=args.imu_path,
-    #     interp_poses=args.intp_pose,
-    #     parse_sbet=args.parse_sbet,
-    #     sbet_deg=args.sbet_deg,
-    #     extension=args.ext,
-    #     buffer_size=args.buffer_size
-    # )
-    extract_multi_line_data(
+    av4_extract_time_pose(
         in_path=args.mission_path,
         traj_data=args.trajectory_path,
         imu_data=args.imu_path,
@@ -454,6 +444,16 @@ def main(config_file):
         extension=args.ext,
         buffer_size=args.buffer_size
     )
+    # extract_multi_line_data(
+    #     in_path=args.mission_path,
+    #     traj_data=args.trajectory_path,
+    #     imu_data=args.imu_path,
+    #     interp_poses=args.intp_pose,
+    #     parse_sbet=args.parse_sbet,
+    #     sbet_deg=args.sbet_deg,
+    #     extension=args.ext,
+    #     buffer_size=args.buffer_size
+    # )
 
 
 if __name__ == '__main__':

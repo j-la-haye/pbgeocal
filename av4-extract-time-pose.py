@@ -10,7 +10,6 @@ from bisect import bisect_left
 from pathlib import Path
 from Sbet import Sbet
 
- 
 def write_csv(input_df,output_file):
     if not os.path.exists(output_file):
         os.makedirs(output_file)
