@@ -91,7 +91,10 @@ def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj',
     elif in_type == 'imu':
         input_df = pd.read_csv(in_data, encoding='utf-8', sep='\t',comment='#',names=['time','gyro1','gyro2','gyro3','acc1','acc2','acc3','sensorStatus'])
         input_df = input_df.drop(columns=['sensorStatus'])
+        #compute the average frequency across all the imu data and rount to integer
+        freq = round(1/(np.mean(np.diff(input_df['time']))))
         input_df['time'] = input_df['time']*1e5
+        input_df.iloc[:,1:7] = input_df.iloc[:,1:7].div(1/freq).round(6)
         
     
     # convert line_times['tod(10usec)'] to a list and covert each element to an int
@@ -434,17 +437,7 @@ def main(config_file):
         exit(1)
 
     # Call data extraction function
-    av4_extract_time_pose(
-        in_path=args.mission_path,
-        traj_data=args.trajectory_path,
-        imu_data=args.imu_path,
-        interp_poses=args.intp_pose,
-        parse_sbet=args.parse_sbet,
-        sbet_deg=args.sbet_deg,
-        extension=args.ext,
-        buffer_size=args.buffer_size
-    )
-    # extract_multi_line_data(
+    # av4_extract_time_pose(
     #     in_path=args.mission_path,
     #     traj_data=args.trajectory_path,
     #     imu_data=args.imu_path,
@@ -454,6 +447,16 @@ def main(config_file):
     #     extension=args.ext,
     #     buffer_size=args.buffer_size
     # )
+    extract_multi_line_data(
+        in_path=args.mission_path,
+        traj_data=args.trajectory_path,
+        imu_data=args.imu_path,
+        interp_poses=args.intp_pose,
+        parse_sbet=args.parse_sbet,
+        sbet_deg=args.sbet_deg,
+        extension=args.ext,
+        buffer_size=args.buffer_size
+    )
 
 
 if __name__ == '__main__':

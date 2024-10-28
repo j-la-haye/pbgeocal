@@ -11,12 +11,28 @@ from pathlib import Path
 from Sbet import Sbet
 
 def write_csv(input_df,output_file):
-    if not os.path.exists(output_file):
-        os.makedirs(output_file)
+    if not os.path.exists(os.path.dirname(output_file)):
+        os.makedirs(os.path.dirname(output_file))
     with open(output_file, 'w', encoding='utf-8') as f:
             # Write the column headers to the file
-            f.write('#'+'\t'.join(input_df.columns.tolist()) + '\n')
-            input_df.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')    
+            f.write('#' + ','.join(input_df.columns.tolist()) + '\n')
+            #print all columns with 6 decimal places except the first column with one
+            # Write all columns with string format 6 decimal places except the first column with one decimal place
+            for i in range(len(input_df)):
+                f.write(f"{input_df.iloc[i].iloc[0]:.1f}" + ''.join([f",{float(value):.6f}" for value in input_df.iloc[i].iloc[1:]]) + '\n')
+            #input_df.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')    
+
+def write_poses_csv(input_df,output_file):
+    if not os.path.exists(os.path.dirname(output_file)):
+        os.makedirs(os.path.dirname(output_file))
+    with open(output_file, 'w', encoding='utf-8') as f:
+            # Write the column headers to the file
+            f.write('#' + ','.join(input_df.columns.tolist()) + '\n')
+            #print all columns with 6 decimal places except the first column with one
+            # Write all columns with string format 6 decimal places except the first column with one decimal place
+            for i in range(len(input_df)):
+                f.write(f"{input_df.iloc[i].iloc[0]}" +''.join(f"{input_df.iloc[i].iloc[1]:.1f}") + ''.join([f",{float(value):.6f}" for value in input_df.iloc[i].iloc[2:4]]) + ''.join([f",{float(value):.14f}" for value in input_df.iloc[i].iloc[5:6]]) + ''.join(f"{input_df.iloc[i].iloc[7]:.3f}") +'\n')
+            #input_df.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')    
 
 def read_file(file_path):
     with open(file_path, 'r') as file:
@@ -87,7 +103,11 @@ def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj',
     elif in_type == 'imu':
         input_df = pd.read_csv(in_data, encoding='utf-8', sep='\t',comment='#',names=['time','gyro1','gyro2','gyro3','acc1','acc2','acc3','sensorStatus'])
         input_df = input_df.drop(columns=['sensorStatus'])
+        freq = round(1/(np.mean(np.diff(input_df['time']))))
+        input_df.iloc[:,1:7] = input_df.iloc[:,1:7].div(1/freq).round(6)
         input_df['time'] = input_df['time']*1e5
+        
+        
         
     
     # convert line_times['tod(10usec)'] to a list and covert each element to an int
@@ -95,14 +115,19 @@ def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj',
     line_times = np.array(extracted_times['tod(10usec)'], dtype=np.int64)
     #line_times = [int(time) for time in line_times['GPS_sod(10usec)']]
 
-    #Save line trajectory/imu data 
-    idx_min = bisect_left(input_df['time'], line_times[0]) - 1
-    idx_max = bisect_left(input_df['time'], line_times[-1])
-    
-    traj_min = max(idx_min - buffer_size, 0)
-    traj_max = min(idx_max + buffer_size, len(input_df['time'])-1)
+    #Save line trajectory/imu data
+    if in_type == 'traj':
+        dt = 1 
+    else:
+        dt = 2
 
-    line_data = input_df.loc[traj_min:traj_max] #.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')
+    idx_min = bisect_left(input_df['time'], line_times[0]) - dt
+    idx_max = bisect_left(input_df['time'], line_times[-1]) + dt
+    
+    data_min = max(idx_min - buffer_size, 0)
+    data_max = min(idx_max + buffer_size, len(input_df['time'])-1)
+
+    line_data = input_df.loc[data_min:data_max] #.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')
 
     #assert that line_times[0] > input_df['time'].iloc[idx_min] and line_times[-1] < input_df['time'].iloc[idx_max]
     # Assuming line_times is a list or a Series, and input_df is the DataFrame with the 'time' column
@@ -121,7 +146,7 @@ def interpolate_line_poses_opt(traj, line_times):
     traj_times  = np.array(traj_df['time'])
     roll = np.array(traj_df['r'])
     pitch = np.array(traj_df['p'])
-    yaw = np.array(traj_df['y'])
+    head = np.array(traj_df['y'])
     lat = np.array(traj_df['lat'])
     lon = np.array(traj_df['lon'])
     alt = np.array(traj_df['alt'])
@@ -133,7 +158,7 @@ def interpolate_line_poses_opt(traj, line_times):
     # Initialize result arrays
     roll_inter = np.zeros_like(line_times)
     pitch_inter = np.zeros_like(line_times)
-    yaw_inter = np.zeros_like(line_times)
+    head_inter = np.zeros_like(line_times)
     lat_inter = np.zeros_like(line_times)
     lon_inter = np.zeros_like(line_times)
     alt_inter = np.zeros_like(line_times)
@@ -147,20 +172,20 @@ def interpolate_line_poses_opt(traj, line_times):
         
         roll_inter[i]= splev(time, splrep(traj_times[m:n], roll[m:n], k=1, s=0), der=0)
         pitch_inter[i] = splev(time, splrep(traj_times[m:n], pitch[m:n], k=1, s=0), der=0)
-        yaw_inter[i] = splev(time, splrep(traj_times[m:n], yaw[m:n], k=1, s=0), der=0)
+        head_inter[i] = splev(time, splrep(traj_times[m:n], head[m:n], k=1, s=0), der=0)
         lat_inter[i] = splev(time, splrep(traj_times[m:n], lat[m:n], k=1, s=0), der=0)
         lon_inter[i] = splev(time, splrep(traj_times[m:n], lon[m:n], k=1, s=0), der=0)
         alt_inter[i] = splev(time, splrep(traj_times[m:n], alt[m:n], k=1, s=0), der=0)
     
     # add line times and interpolated values to a DataFrame
-    line_poses = pd.DataFrame({"line_id": list(range(1, len(line_times) + 1)), "tod(10usec)": line_times, "roll": roll_inter, "pitch": pitch_inter, "yaw": yaw_inter, "lat": lat_inter, "lon": lon_inter, "alt": alt_inter})
+    line_poses = pd.DataFrame({"line_id": list(range(1, len(line_times) + 1)), "tod(10usec)": line_times, "roll": roll_inter, "pitch": pitch_inter, "heading": head_inter, "lat": lat_inter, "lon": lon_inter, "alt": alt_inter})
     return line_poses
 
 def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt):
     # Interpolate line poses from traj using gps time stamps: assumes collumn order of traj_data is 'time', 'lat', 'lon', 'alt' (elps height), 'vx', 'vy','vz','r','p','y'
     roll_inter  = []
     pitch_inter  = []
-    yaw_inter  = []
+    head_inter  = []
     lat_inter = []
     lon_inter = []
     alt_inter = []
@@ -169,7 +194,7 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
     traj_times  = traj_df['time']
     roll = traj_df['r']
     pitch = traj_df['p']
-    yaw = traj_df['y']
+    head = traj_df['y']
     lat = traj_df['lat']
     lon = traj_df['lon']
     alt = traj_df['alt']
@@ -187,7 +212,7 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
         
         roll_inter.append(splev(line_times[i], splrep(traj_times[m:n], roll[m:n], k=1, s=0), der=0))
         pitch_inter.append(splev(line_times[i], splrep(traj_times[m:n], pitch[m:n], k=1, s=0), der=0))
-        yaw_inter.append(splev(line_times[i], splrep(traj_times[m:n], yaw[m:n], k=1, s=0), der=0))
+        head_inter.append(splev(line_times[i], splrep(traj_times[m:n], head[m:n], k=1, s=0), der=0))
         lat_inter.append(splev(line_times[i], splrep(traj_times[m:n], lat[m:n], k=1, s=0), der=0))
         lon_inter.append(splev(line_times[i], splrep(traj_times[m:n], lon[m:n], k=1, s=0), der=0))
         alt_inter.append(splev(line_times[i], splrep(traj_times[m:n], alt[m:n], k=1, s=0), der=0))
@@ -201,10 +226,10 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
     # round roll, pitch, yaw to 10 decimal places
     roll_inter = [float(f"{val:.10f}") for val in roll_inter]
     pitch_inter = [float(f"{val:.10f}") for val in pitch_inter]
-    yaw_inter = [float(f"{val:.10f}") for val in yaw_inter]
+    head_inter = [float(f"{val:.10f}") for val in head_inter]
 
     # add line times and interpolated values to a DataFrame
-    line_poses = pd.DataFrame({"line_id": list(range(1, len(line_times) + 1)), "tod(10usec)": line_times, "roll": roll_inter, "pitch": pitch_inter, "yaw": yaw_inter, "lat": lat_inter, "lon": lon_inter, "alt": alt_inter})
+    line_poses = pd.DataFrame({"line_id": list(range(1, len(line_times) + 1)), "tod(10usec)": line_times, "roll": roll_inter, "pitch": pitch_inter, "head": head_inter, "lat": lat_inter, "lon": lon_inter, "alt": alt_inter})
     
     return line_poses
 
@@ -239,10 +264,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         #create new 'output' directory in the line directory to store files for line times
         times_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_times.csv')
         
-        #check if the output directory exists, if not create it
-        #if not os.path.exists(save_path):
-        #    os.makedirs(save_path)
-        av4_time_reader = 'extract-av4-line-times.cpp'
+        av4_time_reader = 'ExtractAV4LineTimes.cpp'
         line_times = AV4_parse_line_times(av4_time_reader, line)
         write_csv(line_times,times_path)
         
@@ -265,7 +287,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         if interp_poses:
             line_poses = interpolate_line_poses_opt(traj=sbet_csv_path,line_times = line_times)
             poses_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_poses.csv')
-            write_csv(line_poses,poses_path)
+            write_poses_csv(line_poses,poses_path)
             #line_poses.to_csv(os.path.join(output_dir, 'line_poses.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
             print(f"Interpolated poses for line: {line.split('/')[-1]}")
@@ -354,7 +376,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Call the main function with the specified config file
-    main('config.ini') if not args.config else main(args.config)
+    main('av4-extract-time-pose.ini') if not args.config else main(args.config)
    
     
      
