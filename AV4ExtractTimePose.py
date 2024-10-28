@@ -16,7 +16,6 @@ def write_csv(input_df,output_file):
     with open(output_file, 'w', encoding='utf-8') as f:
             # Write the column headers to the file
             f.write('#' + ','.join(input_df.columns.tolist()) + '\n')
-            #print all columns with 6 decimal places except the first column with one
             # Write all columns with string format 6 decimal places except the first column with one decimal place
             for i in range(len(input_df)):
                 f.write(f"{input_df.iloc[i].iloc[0]:.1f}" + ''.join([f",{float(value):.6f}" for value in input_df.iloc[i].iloc[1:]]) + '\n')
@@ -28,11 +27,10 @@ def write_poses_csv(input_df,output_file):
     with open(output_file, 'w', encoding='utf-8') as f:
             # Write the column headers to the file
             f.write('#' + ','.join(input_df.columns.tolist()) + '\n')
-            #print all columns with 6 decimal places except the first column with one
             # Write all columns with string format 6 decimal places except the first column with one decimal place
             for i in range(len(input_df)):
-                f.write(f"{input_df.iloc[i].iloc[0]}" +''.join(f"{input_df.iloc[i].iloc[1]:.1f}") + ''.join([f",{float(value):.6f}" for value in input_df.iloc[i].iloc[2:4]]) + ''.join([f",{float(value):.14f}" for value in input_df.iloc[i].iloc[5:6]]) + ''.join(f"{input_df.iloc[i].iloc[7]:.3f}") +'\n')
-            #input_df.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')    
+                f.write(f"{input_df.iloc[i].iloc[0]:.0f}" +''.join(f",{input_df.iloc[i].iloc[1]:.1f}") + ''.join([f",{float(value):.6f}" \
+                for value in input_df.iloc[i].iloc[2:5]]) + ''.join([f",{float(value):.14f}" for value in input_df.iloc[i].iloc[5:7]]) + ''.join(f",{input_df.iloc[i].iloc[7]:.3f}") +'\n')   
 
 def read_file(file_path):
     with open(file_path, 'r') as file:
