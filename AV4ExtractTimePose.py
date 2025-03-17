@@ -9,16 +9,24 @@ import argparse
 from bisect import bisect_left
 from pathlib import Path
 from Sbet import Sbet
+from AV4EstimateTimes import load_frame_times
+import struct
+import re
 
-def write_csv(input_df,output_file):
+def write_csv(input_df,output_file,input_type=['traj','imu','gps']):
     if not os.path.exists(os.path.dirname(output_file)):
         os.makedirs(os.path.dirname(output_file))
     with open(output_file, 'w', encoding='utf-8') as f:
+
+            if input_type == 'imu' or input_type == 'gps':
+                places = 6
+            else:
+                places = 14
             # Write the column headers to the file
             f.write('#' + ','.join(input_df.columns.tolist()) + '\n')
             # Write all columns with string format 6 decimal places except the first column with one decimal place
             for i in range(len(input_df)):
-                f.write(f"{input_df.iloc[i].iloc[0]:.1f}" + ''.join([f",{float(value):.6f}" for value in input_df.iloc[i].iloc[1:]]) + '\n')
+                f.write(f"{float(input_df.iloc[i].iloc[0]):.1f}" + ''.join([f",{float(value):.{places}f}" for value in input_df.iloc[i].iloc[1:3]]) + ''.join([f",{float(value):.6f}" for value in input_df.iloc[i].iloc[3:]]) + '\n')
             #input_df.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')    
 
 def write_poses_csv(input_df,output_file):
@@ -42,8 +50,116 @@ def get_line_files(directory,extension):
     # Function to read all .bin lines files in mission directory and its subdirectories
     # Create a list of paths to .bin files in the subdirectories of director    
     return glob.glob(os.path.join(directory, f"**/*{extension}"), recursive=True)
+
+def ParseCreateTime(file_path):
+    data = []
     
+    with open(file_path, 'r') as file:
+        for line in file:
+            parts = line.strip().split()
+            if len(parts) >= 9:  # Ensure we have all expected parts
+                filename = parts[0]
+                moddate = parts[2]
+                modtime = parts[3]
+                birthdate = parts[6]
+                birthtime = parts[7]
+               
+                #modify_date = ' '.join(parts[2:4])
+                #birth_date = ' '.join(parts[6:8])
+                
+                # Extract line number
+                line_match = re.search(r'Line_(\d+)', filename)
+                line_number = line_match.group(1) if line_match else None
+                utc_offset = int(parts[8][2])
+                
+                # Check if it's an all_frames file
+                all_frames = 'all_frames' in filename
+                
+                # Parse dates
+                #modify_datetime = datetime.strptime(modify_date, '%Y-%m-%d %H:%M:%S')
+                #birth_datetime = datetime.strptime(birth_date, '%Y-%m-%d %H:%M:%S')
+                
+                data.append([filename,  birthdate,birthtime, line_number,utc_offset])
+
+    # Create DataFrame
+    df = pd.DataFrame(data, columns=['filename', 'birthdate','birthtime',  'line_number','utc_offset'])
     
+    # Convert line_number to numeric, coercing invalid values to NaN
+    df['line_number'] = pd.to_numeric(df['line_number'], errors='coerce')
+    df['datetime'] = pd.to_datetime(df['birthdate'] + ' ' + df['birthtime'])
+    #correct for UTC offset
+    df['datetime'] = df['datetime'] - pd.to_timedelta(df['utc_offset'], unit='h')
+                                
+
+    # Ensure datetime has nanosecond precision
+    #df['zerotime'] = df['datetime'].replace(hour=0, minute=0, second=0, microsecond=0)
+
+    df['tod'] = df['datetime'].apply(lambda x: f"{((x - x.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() + x.nanosecond / 1e9):.9f}")
+    #df['tod'] = df['tod'].map(lambda x: f"{x:.9f}")
+
+    # Drop unnecessary columns
+    #df = df.drop(['permissions', 'links', 'owner', 'group', 'date', 'file_time', 'timezone', 'all_frames'], axis=1)
+
+    # Reorder columns
+    df = df[['filename', 'datetime','line_number', 'tod']]
+
+    return df
+    
+def AV4EstimateLineTimes(frame_file_path,creation_times_path):
+
+    # Constants
+    data_t = 'H'  # Unsigned short (16-bit integer)
+    aviris4img_channels = 327  # Does not include the band with time tags
+    aviris4img_resolution = 1280
+    aviris4img_headerlinelen = aviris4img_resolution * struct.calcsize(data_t)
+    aviris4img_linelen = aviris4img_resolution * (aviris4img_channels + 1) * struct.calcsize(data_t)
+    aviris4img_linedatalen = aviris4img_resolution * aviris4img_channels * struct.calcsize(data_t)
+    sysTimeOffset = 0
+
+    # Check file size and existence
+    if not os.path.exists(frame_file_path):
+        return []
+
+    file_size = os.path.getsize(frame_file_path)
+
+    if file_size % aviris4img_linelen != 0:
+        return []  # Unexpected file size
+
+    n_lines = file_size // aviris4img_linelen
+
+    # Structure to hold line timing info
+    class LineTimingInfos:
+        def __init__(self, internal_time):
+            self.internal_time = internal_time
+
+    info = [None] * n_lines
+    ret = [0] * n_lines
+
+    #CubeCreationTime = ParseCreateTime(creation_times_path)
+    #CubeCreationTime = pd.read_csv(creation_times_path,comment='#',header=None, delimiter = ',',names=['filename', 'datetime','line_number', 'tod'])
+
+    # find CubeCreationTime['tod'] of current frame_file_path
+    line_creation_tod = int(creation_times_path * 1e4) #float(CubeCreationTime['tod'].loc[CubeCreationTime['filename'] == frame_file_path.split('/')[-1]].values[0])
+       
+    with open(frame_file_path, 'rb') as f:
+        header_data = bytearray(aviris4img_headerlinelen)
+        # Read all header lines at once
+        for i in range(n_lines):
+            # Read the header line
+            f.seek(i * aviris4img_linelen)
+            f.readinto(header_data)
+
+            # Extract various data from header
+            line_internal_time = struct.unpack_from('<I', header_data, sysTimeOffset)[0]  # Little endian 4 bytes
+            
+            # Store the timing info
+            info[i] = LineTimingInfos(line_internal_time)
+    # Calculate the final times
+    for i in range(n_lines):
+        delta_t = info[i].internal_time - info[0].internal_time
+        ret[i] = (line_creation_tod*10  + delta_t)
+    frame_times = pd.DataFrame({"tod(10usec)": [f"{x:.0f}" for x in ret]})
+    return frame_times 
    
 def AV4_parse_line_times(cpp_file, input_file=None):
     # Compile C++ code to parse AV4 scan line GPS time-stamps (in 10 usec of day)
@@ -51,7 +167,7 @@ def AV4_parse_line_times(cpp_file, input_file=None):
     filename = os.path.splitext(cpp_file)[0]
     
     # Compile the C++ file
-    compile_command = f"g++ -std=c++17 {cpp_file} -o {filename}"
+    compile_command = f"clang++ -std=c++17 {cpp_file} -o {filename}"
     compile_process = subprocess.run(compile_command, shell=True, capture_output=True, text=True)
     
     if compile_process.returncode != 0:
@@ -97,30 +213,41 @@ def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj',
     
     if in_type == 'traj':
         #time_10usec,latitude,longitude,altitude,roll,pitch,heading,'x_vel,y_vel,z_vel\n')
-        input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','y', 'vel_x', 'vel_y','vel_z']) 
+        input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','hd', 'vel_x', 'vel_y','vel_z']) 
+        if input_df['time'].all() < 1e6:
+            input_df['time'] = input_df['time']*1e5
     elif in_type == 'imu':
-        input_df = pd.read_csv(in_data, encoding='utf-8', sep='\t',comment='#',names=['time','gyro1','gyro2','gyro3','acc1','acc2','acc3','sensorStatus'])
+        input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time','gyro1','gyro2','gyro3','acc1','acc2','acc3'])
         input_df = input_df.drop(columns=['sensorStatus'])
-        freq = round(1/(np.mean(np.diff(input_df['time']))))
+        freq = round(1/(np.mean(np.diff(input_df['time'])/1e5)))
         input_df.iloc[:,1:7] = input_df.iloc[:,1:7].div(1/freq).round(6)
         input_df['time'] = input_df['time']*1e5
-        
-        
-        
+            
     
     # convert line_times['tod(10usec)'] to a list and covert each element to an int
 
     line_times = np.array(extracted_times['tod(10usec)'], dtype=np.int64)
     #line_times = [int(time) for time in line_times['GPS_sod(10usec)']]
 
-    #Save line trajectory/imu data
-    if in_type == 'traj':
-        dt = 1 
-    else:
-        dt = 2
+    
 
-    idx_min = bisect_left(input_df['time'], line_times[0]) - dt
-    idx_max = bisect_left(input_df['time'], line_times[-1]) + dt
+    idx_min = bisect_left(input_df['time'], line_times[0]) 
+    idx_max = bisect_left(input_df['time'], line_times[-1]) 
+
+    #Save line trajectory/imu data
+    if in_type == 'traj' and idx_max < len(input_df['time']):
+        dt = 1 
+        idx_min -= dt
+        idx_max += dt  
+    elif in_type == 'imu' and idx_max < len(input_df['time']):
+        dt = 2
+        idx_min -= dt
+        idx_max += dt 
+    
+    # Assert that idx_min and idx_max are within the bounds of the input data
+
+    assert idx_min >= buffer_size, "Assertion failed: idx_min is less than 0"
+    assert idx_max > buffer_size, "Assertion failed: idx_max is less than 1"
     
     data_min = max(idx_min - buffer_size, 0)
     data_max = min(idx_max + buffer_size, len(input_df['time'])-1)
@@ -129,8 +256,8 @@ def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj',
 
     #assert that line_times[0] > input_df['time'].iloc[idx_min] and line_times[-1] < input_df['time'].iloc[idx_max]
     # Assuming line_times is a list or a Series, and input_df is the DataFrame with the 'time' column
-    assert line_times[0] > input_df['time'].iloc[idx_min], "Assertion failed: line_times[0] is not greater than input_df['time'].iloc[idx_min]"
-    assert line_times[-1] < input_df['time'].iloc[idx_max], "Assertion failed: line_times[-1] is not less than input_df['time'].iloc[idx_max]"
+    assert line_times[0] >= input_df['time'].iloc[data_min], "Assertion failed: line_times[0] is not greater than input_df['time'].iloc[data_min]"
+    assert line_times[-1] <= input_df['time'].iloc[data_max], "Assertion failed: line_times[-1] is not less than input_df['time'].iloc[idx_max]"
 
     return line_data
 
@@ -141,6 +268,12 @@ def interpolate_line_poses_opt(traj, line_times):
 
     # Convert trajectory data to NumPy arrays
     traj_df = pd.read_csv(traj, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','y', 'vel_x', 'vel_y','vel_z'])
+    # drop velocity columns
+    traj_df = traj_df.drop(columns=['vel_x', 'vel_y','vel_z'])
+
+    #  select only unique rows of traj_df
+    traj_df = traj_df.drop_duplicates(subset=['time'],keep='first')
+
     traj_times  = np.array(traj_df['time'])
     roll = np.array(traj_df['r'])
     pitch = np.array(traj_df['p'])
@@ -174,6 +307,9 @@ def interpolate_line_poses_opt(traj, line_times):
         lat_inter[i] = splev(time, splrep(traj_times[m:n], lat[m:n], k=1, s=0), der=0)
         lon_inter[i] = splev(time, splrep(traj_times[m:n], lon[m:n], k=1, s=0), der=0)
         alt_inter[i] = splev(time, splrep(traj_times[m:n], alt[m:n], k=1, s=0), der=0)
+
+        # assert that the interpolated values are not NaN
+        assert not np.isnan(roll_inter[i]), "Assertion failed: roll_inter[i] is NaN"
     
     # add line times and interpolated values to a DataFrame
     line_poses = pd.DataFrame({"line_id": list(range(1, len(line_times) + 1)), "tod(10usec)": line_times, "roll": roll_inter, "pitch": pitch_inter, "heading": head_inter, "lat": lat_inter, "lon": lon_inter, "alt": alt_inter})
@@ -231,7 +367,7 @@ def interpolate_line_poses(traj, line_times): # roll, pitch, yaw, lat, lon, alt)
     
     return line_poses
 
-def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,parse_sbet=True,sbet_deg=True,buffer_size=1000,extension=".bin",out_traj='Atlans_sbet_NED_tod_10usec.csv'):
+def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,parse_sbet=True,sbet_deg=True,LineCreationTimes=None,buffer_size=1000,extension=".bin",out_traj='Atlans_sbet_NED_tod_10usec.csv'):
     
     if parse_sbet:
         sbet = Sbet(traj_data,sbet_deg)
@@ -263,7 +399,13 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         times_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_times.csv')
         
         av4_time_reader = 'ExtractAV4LineTimes.cpp'
-        line_times = AV4_parse_line_times(av4_time_reader, line)
+        if LineCreationTimes is None:
+            line_times = AV4_parse_line_times(av4_time_reader, line)
+        else:
+            line_times = AV4EstimateLineTimes(line,LineCreationTimes)
+            # Plot line times to ensure times increment linearly
+            #import matplotlib.pyplot as plt
+
         write_csv(line_times,times_path)
         
 
@@ -283,7 +425,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
 
         # Interpolate Line Poses and save
         if interp_poses:
-            line_poses = interpolate_line_poses_opt(traj=sbet_csv_path,line_times = line_times)
+            line_poses = interpolate_line_poses_opt(traj=traj_path,line_times = line_times)
             poses_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_poses.csv')
             write_poses_csv(line_poses,poses_path)
             #line_poses.to_csv(os.path.join(output_dir, 'line_poses.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
@@ -312,16 +454,12 @@ def main(config_file):
     parser.add_argument('--intp_pose', type=bool, help='Generate interpolated poses for given line times (default: True)')
     parser.add_argument('--parse_sbet', help='parse input sbet.out file (default: True)')
     parser.add_argument('--sbet_deg',default=True, type=bool,help='convert sbet to deg or leave in radians (default:True)')
-    parser.add_argument('--ext',default='.bin', help='Raw data file extension (default: .bin)')
+    parser.add_argument('--ext',default=None, help='Raw data file extension (default: .bin)')
     parser.add_argument('--buffer_size',default=1000, type=int, help='Time stamp buffer beyond min/max line time stamp (default: 1000)')
+    parser.add_argument('--LineCreationTimes',default=None, type=str, help='File creation times for non-time stamped .bin files')
 
     # Parse the command-line arguments (without defaults from config file)
     args = parser.parse_args()
-    
-    #print Keys in config file
-
-    print(config.keys())
-    print(config.sections())
     
     # Update the arguments with defaults from the config file, if not provided on the command line
     if not args.mission_path and config.has_section('PATHS') and config.has_option('PATHS', 'path_to_mission'):
@@ -336,10 +474,12 @@ def main(config_file):
         args.parse_sbet = config['OPTIONS'].getboolean('parse_sbet')
     if not args.sbet_deg and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'sbet_deg'):
         args.sbet_deg = config['OPTIONS'].getboolean('sbet_deg')
-    if not args.ext and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'extension'):
-        args.ext = config['OPTIONS'].get('extension')
+    if not args.ext and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'raw_data_extension'):
+        args.ext = config['OPTIONS'].get('raw_data_extension')
     if not args.buffer_size and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'buffer_size'):
         args.buffer_size = config['OPTIONS'].getint('buffer_size')
+    #if not args.LineCreationTimes and config.has_section('PATHS') and config.has_option('PATHS', 'LineCreationTimes'):
+    #    args.LineCreationTimes = config['PATHS'].get('LineCreationTimes')
 
     #Clear args.config_file
     if args.config == config_file:
@@ -361,7 +501,8 @@ def main(config_file):
         parse_sbet=args.parse_sbet,
         sbet_deg=args.sbet_deg,
         extension=args.ext,
-        buffer_size=args.buffer_size
+        buffer_size=args.buffer_size, 
+        #LineCreationTimes=float(args.LineCreationTimes)
     )
 
 
@@ -374,7 +515,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Call the main function with the specified config file
-    main('av4-extract-time-pose.ini') if not args.config else main(args.config)
+    main('config/av4-extract-time-pose_Thun_L101_RDN_rgb.ini') if not args.config else main(args.config)
    
     
      
