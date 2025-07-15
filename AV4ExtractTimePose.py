@@ -12,21 +12,31 @@ from Sbet import Sbet
 from AV4EstimateTimes import load_frame_times
 import struct
 import re
+import matplotlib.pyplot as plt
+from plot_sbet import plot_2d_osm_map, plot_2d_osm_altitude
 
-def write_csv(input_df,output_file,input_type=['traj','imu','gps']):
+def write_csv(input_df,output_file,input_type=['traj','imu','gps','times']):
     if not os.path.exists(os.path.dirname(output_file)):
         os.makedirs(os.path.dirname(output_file))
     with open(output_file, 'w', encoding='utf-8') as f:
 
             if input_type == 'imu' or input_type == 'gps':
                 places = 6
+
+            if input_type == 'times':
+                places = 0
             else:
                 places = 14
-            # Write the column headers to the file
-            f.write('#' + ','.join(input_df.columns.tolist()) + '\n')
-            # Write all columns with string format 6 decimal places except the first column with one decimal place
-            for i in range(len(input_df)):
-                f.write(f"{float(input_df.iloc[i].iloc[0]):.1f}" + ''.join([f",{float(value):.{places}f}" for value in input_df.iloc[i].iloc[1:3]]) + ''.join([f",{float(value):.6f}" for value in input_df.iloc[i].iloc[3:]]) + '\n')
+            
+            if input_type == 'times':
+                for i in range(len(input_df)):
+                    f.write(f"{float(input_df.iloc[i].iloc[1]):.{places}f}" + '\n')
+            else:
+                # Write the column headers to the file
+                f.write('#' + ','.join(input_df.columns.tolist()) + '\n')
+                # Write all columns with string format 6 decimal places except the first column with one decimal place
+                for i in range(len(input_df)):
+                    f.write(f"{float(input_df.iloc[i].iloc[0]):.1f}" + ''.join([f",{float(value):.{places}f}" for value in input_df.iloc[i].iloc[1:3]]) + ''.join([f",{float(value):.6f}" for value in input_df.iloc[i].iloc[3:]]) + '\n')
             #input_df.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')    
 
 def write_poses_csv(input_df,output_file):
@@ -214,14 +224,17 @@ def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj',
     if in_type == 'traj':
         #time_10usec,latitude,longitude,altitude,roll,pitch,heading,'x_vel,y_vel,z_vel\n')
         input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','hd', 'vel_x', 'vel_y','vel_z']) 
-        if input_df['time'].all() < 1e6:
+        if (input_df['time'] < 1e6).all():
             input_df['time'] = input_df['time']*1e5
     elif in_type == 'imu':
+        
         input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time','gyro1','gyro2','gyro3','acc1','acc2','acc3'])
-        input_df = input_df.drop(columns=['sensorStatus'])
-        freq = round(1/(np.mean(np.diff(input_df['time'])/1e5)))
+        #input_df = input_df.drop(columns=['sensorStatus'])
+        freq = round(1/(np.mean(np.diff(input_df['time']))))
         input_df.iloc[:,1:7] = input_df.iloc[:,1:7].div(1/freq).round(6)
-        input_df['time'] = input_df['time']*1e5
+        if (input_df['time'] < 1e6).all():
+            input_df['time'] = input_df['time']*1e5
+        
             
     
     # convert line_times['tod(10usec)'] to a list and covert each element to an int
@@ -376,7 +389,11 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         sbet.saveSbet2csv(sbet_csv_path)
     else:
         sbet_csv_path = traj_data
-    
+
+    # Plot 2D SBET trajectory for verification
+    print("SBET parsing complete, plotting SBET trajectory for verification")
+    plot_2d_osm_altitude(sbet_csv_path, zoom=10)
+
     in_path = Path(in_path)
     
     # check if the input path is a directory
@@ -396,7 +413,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
     for line in line_files:
         print(f"Processing line {line.split('/')[-1]}")
         #create new 'output' directory in the line directory to store files for line times
-        times_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_times.csv')
+        times_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '.times')
         
         av4_time_reader = 'ExtractAV4LineTimes.cpp'
         if LineCreationTimes is None:
@@ -405,32 +422,46 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
             line_times = AV4EstimateLineTimes(line,LineCreationTimes)
             # Plot line times to ensure times increment linearly
             #import matplotlib.pyplot as plt
+        
+        # Compute delta time between line times
+        computed_delta = np.diff(line_times['tod(10usec)'].astype(np.float64))
+        print(f"Computed delta time for line {line.split('/')[-1]}: {np.median(computed_delta)} usec")
+        #print first line_times
+        print(line_times.head())
+        
+        #plot the computed delta time
+        plt.plot(computed_delta)
+        plt.xlabel('Line Number')
+        plt.ylabel('Delta Time (10 usec)')
+        #plt.title(f"Computed Delta Time for {line.split('/')[-1]}")
+        #plt.show()
 
-        write_csv(line_times,times_path)
+
+        write_csv(line_times,times_path,input_type='times')
         
 
         # Save traj for current line times
-        line_traj = extract_line_data(in_data = sbet_csv_path ,extracted_times = line_times,buffer_size=buffer_size,in_type='traj')
-        traj_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_traj.csv')
-        write_csv(line_traj,traj_path)
+        #line_traj = extract_line_data(in_data = sbet_csv_path ,extracted_times = line_times,buffer_size=buffer_size,in_type='traj')
+        #traj_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_traj.csv')
+        #write_csv(line_traj,traj_path,input_type='traj')
 
         # Save raw-imu for current line times
-        if imu_data is not None:
-            line_imu = extract_line_data(in_data = imu_data,extracted_times = line_times,buffer_size=buffer_size,in_type='imu')
-            imu_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_imu.csv')
-            write_csv(line_imu,imu_path)
-            #line_imu.to_csv(os.path.join(output_dir, 'line_imu.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
+        # if imu_data is not None:
+        #     line_imu = extract_line_data(in_data = imu_data,extracted_times = line_times,buffer_size=buffer_size,in_type='imu')
+        #     imu_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_imu.csv')
+        #     write_csv(line_imu,imu_path,input_type='imu')
+        #     #line_imu.to_csv(os.path.join(output_dir, 'line_imu.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
-            print(f"Processed times,traj and imu line: {line.split('/')[-1]}")
+        #     print(f"Processed times,traj and imu line: {line.split('/')[-1]}")
 
-        # Interpolate Line Poses and save
-        if interp_poses:
-            line_poses = interpolate_line_poses_opt(traj=traj_path,line_times = line_times)
-            poses_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_poses.csv')
-            write_poses_csv(line_poses,poses_path)
-            #line_poses.to_csv(os.path.join(output_dir, 'line_poses.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
+        # # Interpolate Line Poses and save
+        # if interp_poses:
+        #     line_poses = interpolate_line_poses_opt(traj=traj_path,line_times = line_times)
+        #     poses_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_poses.csv')
+        #     write_poses_csv(line_poses,poses_path,input_type='pose')
+        #     #line_poses.to_csv(os.path.join(output_dir, 'line_poses.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
-            print(f"Interpolated poses for line: {line.split('/')[-1]}")
+        #     print(f"Interpolated poses for line: {line.split('/')[-1]}")
 
 
 def main(config_file):
@@ -515,7 +546,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Call the main function with the specified config file
-    main('config/av4-extract-time-pose_Thun_L101_RDN_rgb.ini') if not args.config else main(args.config)
+    main('config/av4-extract-time-pose.ini') if not args.config else main(args.config)
    
     
      

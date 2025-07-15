@@ -10,14 +10,23 @@ from bisect import bisect_left
 from pathlib import Path
 from Sbet import Sbet
 
+
  
-def write_csv(input_df,output_file):
-    #if not os.path.exists(output_file):
-    #    os.makedirs(output_file)
+def write_csv(input_df,output_file,input_type=['traj','imu','gps']):
+    if not os.path.exists(os.path.dirname(output_file)):
+        os.makedirs(os.path.dirname(output_file))
     with open(output_file, 'w', encoding='utf-8') as f:
+
+            if input_type == 'imu' or input_type == 'gps':
+                places = 6
+            else:
+                places = 14
             # Write the column headers to the file
-            f.write('#'+'\t'.join(input_df.columns.tolist()) + '\n')
-            input_df.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')    
+            f.write('#' + ','.join(input_df.columns.tolist()) + '\n')
+            # Write all columns with string format 6 decimal places except the first column with one decimal place
+            for i in range(len(input_df)):
+                f.write(f"{float(input_df.iloc[i].iloc[0]):.1f}" + ''.join([f",{float(value):.{places}f}" for value in input_df.iloc[i].iloc[1:3]]) + ''.join([f",{float(value):.6f}" for value in input_df.iloc[i].iloc[3:]]) + '\n')
+            #input_df.to_csv(f, index=False,header=False,float_format='%.6f', sep=',')    
 
 def read_file(file_path):
     with open(file_path, 'r') as file:
@@ -85,11 +94,11 @@ def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj',
     if in_type == 'traj':
         #time_10usec,latitude,longitude,altitude,roll,pitch,heading,'x_vel,y_vel,z_vel\n')
         if type(in_data) == pd.DataFrame:
-            input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','y', 'vel_x', 'vel_y','vel_z'])
+            input_df = input_df #pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','y', 'vel_x', 'vel_y','vel_z'])
         else:
             input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time', 'lat', 'lon', 'alt','r','p','y', 'vel_x', 'vel_y','vel_z']) 
     elif in_type == 'imu':
-        input_df = pd.read_csv(in_data, encoding='utf-8', sep='\t',comment='#',names=['time','gyro1','gyro2','gyro3','acc1','acc2','acc3','sensorStatus'])
+        input_df = pd.read_csv(in_data, encoding='utf-8', sep=',',comment='#',names=['time','gyro1','gyro2','gyro3','acc1','acc2','acc3','sensorStatus'])
         input_df = input_df.drop(columns=['sensorStatus'])
         #compute the average frequency across all the imu data and rount to integer
         freq = round(1/(np.mean(np.diff(input_df['time']))))
@@ -223,7 +232,10 @@ def extract_multi_line_data(in_path,traj_data,imu_data=None,interp_poses = True,
         print(f"Parsing SBET and saving to csv: {sbet_csv_path}")
         sbet.saveSbet2csv(sbet_csv_path)
     else:
-        sbet_csv_path = traj_data
+        
+        sbet_csv_path = sbet_csv_path = traj_data.split('.')[0]+'.csv'
+        print(f"Processing SBET csv: {sbet_csv_path}")
+        #sbet_csv_path = traj_data
     
     in_path = Path(in_path)
     
@@ -247,10 +259,10 @@ def extract_multi_line_data(in_path,traj_data,imu_data=None,interp_poses = True,
    # for file in glob.glob(os.path.join(in_path, f"**/*{'_times.csv'}"), recursive=True):
    #     all_times.concat([pd.read_csv(file, encoding='utf-8', sep=',', comment='#', names=['frame',"tod(10usec)"])]).sort_values(by="tod(10usec)").reset_index(drop=True)
     
-    lines =  glob.glob(os.path.join(in_path, f"**/*{'_times.csv'}"), recursive=True)
+    lines =  glob.glob(os.path.join(in_path, f"**/*{'.times'}"), recursive=True)
     lines_times = pd.concat(
-        [pd.read_csv(file, encoding='utf-8', sep=',', comment='#', names=['frm',"tod(10usec)"],usecols=[1]) 
-         for file in glob.glob(os.path.join(in_path, f"**/*{'_times.csv'}"), recursive=True)]
+        [pd.read_csv(file, encoding='utf-8', sep=',', comment='#', names=["tod(10usec)"],usecols=[0]) 
+         for file in glob.glob(os.path.join(in_path, f"**/*{'.times'}"), recursive=True)]
     ).sort_values(by="tod(10usec)").reset_index(drop=True)
 
     n_lines_traj = extract_line_data(in_data = sbet_csv_path ,extracted_times = lines_times,buffer_size=buffer_size,in_type='traj')
@@ -260,14 +272,14 @@ def extract_multi_line_data(in_path,traj_data,imu_data=None,interp_poses = True,
     #line_dirs = [os.path.basename(os.path.dirname(line)) for line in lines]
     line_names = [line.split('/')[-2] for line in lines]
     traj_path = os.path.join(os.path.dirname(in_path), 'RawDataCube_' + '_'.join(line_names) + '_traj.csv')
-    write_csv(n_lines_traj,traj_path)
+    write_csv(n_lines_traj,traj_path,input_type='traj')
         #line_traj.to_csv(os.path.join(output_dir, 'line_traj.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
     # Save raw-imu for current line times
     if imu_data is not None:
         n_lines_imu = extract_line_data(in_data = imu_data ,extracted_times = lines_times,buffer_size=buffer_size,in_type='imu')
         imu_path = os.path.join(os.path.dirname(in_path), 'RawDataCube_' + '_'.join(line_names) + '_imu.csv')
-        write_csv(n_lines_imu,imu_path)
+        write_csv(n_lines_imu,imu_path,input_type='imu')
             #line_imu.to_csv(os.path.join(output_dir, 'line_imu.csv'), sep=',', index=False, header=True,float_format='%.6f',mode='w')
 
         print(f"Processed times,traj and imu lines: {'RawDataCube_' + '_'.join(line_names)}")
@@ -308,7 +320,8 @@ def combine_timing_files(in_path,out_path,extension):
     out_file = os.path.join(out_path, 'combined_times.txt')
     frame_times.to_csv(out_file, sep='\t', index=False)
 
-def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,parse_sbet=True,sbet_deg=True,buffer_size=1000,extension=".bin"):
+
+def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,parse_sbet=True,sbet_deg=True,extract_times=False,buffer_size=1000,extension=".bin"):
     
     if parse_sbet:
         sbet = Sbet(traj_data,sbet_deg)
@@ -316,7 +329,8 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         print(f"Parsing SBET and saving to csv: {sbet_csv_path}")
         sbet.saveSbet2csv(sbet_csv_path)
     else:
-        sbet_csv_path = traj_data
+        sbet_csv_path = sbet_csv_path = traj_data.split('.')[0]+'.csv'
+        #sbet_csv_path = traj_data
     
     in_path = Path(in_path)
     
@@ -342,10 +356,12 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         #check if the output directory exists, if not create it
         #if not os.path.exists(save_path):
         #    os.makedirs(save_path)
-        av4_time_reader = 'extract-av4-line-times.cpp'
-        line_times = AV4_parse_line_times(av4_time_reader, line)
-        write_csv(line_times,times_path)
-        
+        if extract_times:
+            av4_time_reader = 'ExtractAV4LineTimes.cpp'
+            line_times = AV4_parse_line_times(av4_time_reader, line)
+            write_csv(line_times,times_path)
+        else:
+            line_times = pd.read_csv(times_path, encoding='utf-8', sep=',',comment='#',names=['frame',"tod(10usec)"])        
 
         # Save traj for current line times
         line_traj = extract_line_data(in_data = sbet_csv_path ,extracted_times = line_times,buffer_size=buffer_size,in_type='traj')
@@ -392,6 +408,7 @@ def main(config_file):
     parser.add_argument('--imu_path', help='Path to the raw IMU data')
     parser.add_argument('--intp_pose', type=bool, help='Generate interpolated poses for given line times (default: True)')
     parser.add_argument('--parse_sbet', help='parse input sbet.out file (default: True)')
+    parser.add_argument('--extract_line_times', help='extract time tag data from image data (default: True)')
     parser.add_argument('--sbet_deg',default=True, type=bool,help='convert sbet to deg or leave in radians (default:True)')
     #parser.add_argument('--out_dir_name', default='geo_rect_data', help='Output directory (default: georect_data)')
     parser.add_argument('--ext',default='.bin', help='Raw data file extension (default: .bin)')
@@ -420,6 +437,8 @@ def main(config_file):
         args.parse_sbet = config['OPTIONS'].getboolean('parse_sbet')
     if not args.sbet_deg and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'sbet_deg'):
         args.sbet_deg = config['OPTIONS'].getboolean('sbet_deg')
+    if not args.extract_line_times and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'extract_line_times'):
+        args.extract_line_times = config['OPTIONS'].getboolean('extract_line_times')
     if not args.ext and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'extension'):
         args.ext = config['OPTIONS'].get('extension')
     if not args.buffer_size and config.has_section('OPTIONS') and config.has_option('OPTIONS', 'buffer_size'):
@@ -437,6 +456,7 @@ def main(config_file):
         exit(1)
 
     # Call data extraction function
+    # Call data extraction function
     # av4_extract_time_pose(
     #     in_path=args.mission_path,
     #     traj_data=args.trajectory_path,
@@ -445,7 +465,9 @@ def main(config_file):
     #     parse_sbet=args.parse_sbet,
     #     sbet_deg=args.sbet_deg,
     #     extension=args.ext,
-    #     buffer_size=args.buffer_size
+    #     buffer_size=args.buffer_size,
+    #     extract_times=args.extract_line_times 
+    #     #LineCreationTimes=float(args.LineCreationTimes)
     # )
     extract_multi_line_data(
         in_path=args.mission_path,
@@ -468,7 +490,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Call the main function with the specified config file
-    main('av4-extract-time-pose.ini') if not args.config else main(args.config)
+    main('config/av4-extract-time-pose_Thun_20250427.ini') if not args.config else main(args.config)
    
     
      
