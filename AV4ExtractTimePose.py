@@ -421,7 +421,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         else:
             line_times = AV4EstimateLineTimes(line,LineCreationTimes)
             # Plot line times to ensure times increment linearly
-            #import matplotlib.pyplot as plt
+            
         
         # Compute delta time between line times
         computed_delta = np.diff(line_times['tod(10usec)'].astype(np.float64))
@@ -441,7 +441,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         
 
         # Save traj for current line times
-        #line_traj = extract_line_data(in_data = sbet_csv_path ,extracted_times = line_times,buffer_size=buffer_size,in_type='traj')
+        line_traj = extract_line_data(in_data = sbet_csv_path ,extracted_times = line_times,buffer_size=buffer_size,in_type='traj')
         #traj_path = os.path.join(os.path.dirname(line), os.path.splitext(os.path.basename(line))[0] + '_traj.csv')
         #write_csv(line_traj,traj_path,input_type='traj')
 
