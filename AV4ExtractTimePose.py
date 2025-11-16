@@ -242,8 +242,6 @@ def extract_line_data(in_data, extracted_times, buffer_size=100,in_type=['traj',
     line_times = np.array(extracted_times['tod(10usec)'], dtype=np.int64)
     #line_times = [int(time) for time in line_times['GPS_sod(10usec)']]
 
-    
-
     idx_min = bisect_left(input_df['time'], line_times[0]) 
     idx_max = bisect_left(input_df['time'], line_times[-1]) 
 

@@ -1,0 +1,39 @@
+images:
+  img1: "img1_hdr = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l3_rgb/bil_data/M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450.bil"
+  img2: "img2_hdr = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.bil"
+
+bands:
+  img1: [3, 2, 1]
+  img2: [3, 2, 1]
+
+algorithms:
+  loftr: false
+  efficientloftr: true
+  orb: true
+  surf: false
+
+loftr:
+  # path to your original LoFTR .ckpt
+  weights: "weights/loftr_outdoor.ckpt"
+
+efficientloftr:
+  model_name: "zju-community/efficientloftr"
+  threshold: 0.2
+
+orb:
+  n_features: 5000
+
+surf:
+  hessian_threshold: 400
+
+tiling:
+  enabled: true
+  tile_size: 512
+  overlap: 64
+
+metrics:
+  enabled: true
+
+output:
+  directory: "outputs/"
+  top_k_vis: 500
