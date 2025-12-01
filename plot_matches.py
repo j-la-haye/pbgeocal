@@ -192,6 +192,8 @@ def main():
     img2_hdr = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/' \
     'l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.hdr'
     matches_csv = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/rgb_matches/' \
+    '   ' \
+    '' \
     'rgb_matches_export/M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450_M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.txt'
     
     # Delimiter for the matches file
