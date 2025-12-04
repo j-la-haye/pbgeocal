@@ -14,14 +14,14 @@
 #   TYPE1 [OBJECT1] [PARAMS], TYPE2 [OBJECT2] [PARAMS]
 # The script will automatically determine parameter counts based on TYPE.
 # -----------------------------------------------------------------------------
-input_file_path: "/Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/raw_matches_export/raw_M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450_M024_250427_CHE_Colombier_Line_40001_131206_162_refl_rgb_650_550_450.txt"
-templates:
+# input_file_path: "/Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/raw_matches_export/raw_M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450_M024_250427_CHE_Colombier_Line_40001_131206_162_refl_rgb_650_550_450.txt"
+# templates:
 
-  - type1: "UV"
-    object1: "HsBil2"
-    object1: "line_1"
-    type2: "UV"
-    object2: "line_2"
+#   - type1: "UV"
+#     object1: "HsBil2"
+#     object1: "line_1"
+#     type2: "UV"
+#     object2: "line_2"
 
 
 # -----------------------------------------------------------------------------
@@ -39,7 +39,7 @@ templates:
 # -----------------------------------------------------------------------------
 
 # Root directory containing match text files
-root_dir: "/Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/rgb_matches/raw_matches_export/raw_matches/l4_5"
+root_dir: "/Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/LandMarks/Stevi_TPs/L3"
 
 # Image pair configuration
 image_pair:

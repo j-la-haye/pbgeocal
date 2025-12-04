@@ -93,7 +93,7 @@ def main():
     #    print("Usage: python generate_template_uvt_dir.py <config.yaml>")
     #    sys.exit(1)
 
-    yaml_file = "config/stevi_match.yaml" #sys.argv[1]
+    yaml_file = "configs/stevi_match.yaml" #sys.argv[1]
     cfg = load_yaml_config(yaml_file)
 
     root_dir = cfg.get("root_dir")
