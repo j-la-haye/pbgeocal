@@ -1,0 +1,23 @@
+# config.yaml
+input_file: data.bin
+output_base: output_cube
+
+# Data dimensions
+samples: 1280
+bands: 286
+data_type: uint16
+
+# Optional: if not specified, calculated from file size
+# lines: 1000
+
+# Data format
+interleave: bil
+byte_order: little
+
+# Wavelength information
+wavelength_units: nm
+wavelength_file: data/av4_wavelengths.txt
+
+# Optional metadata
+# description: "Hyperspectral data cube"
+# sensor_type: "Example Sensor"
