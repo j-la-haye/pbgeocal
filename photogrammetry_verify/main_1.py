@@ -60,6 +60,7 @@ def run_bingo_verification(config_path):
     
     img_poses = trajectory_ltp.interpolate(img_times, cfg)
     
+    
     # Initialize Trajectory Interpolator
     #print("Initializing Trajectory Interpolator...")
     #traj_interp = TrajectoryInterpolator(cfg['project']['trajectory_csv'])
