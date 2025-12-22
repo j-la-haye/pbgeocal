@@ -1,0 +1,349 @@
+{
+  "summary": {
+    "total_measurements": 15,
+    "valid_projections": 15,
+    "invalid_projections": 0,
+    "threshold_pixels": 3.0,
+    "points_within_threshold": 0,
+    "points_outside_threshold": 15,
+    "pass_rate": 0.0
+  },
+  "error_statistics": {
+    "mean_error": 883.4781043416217,
+    "std_error": 345.0006466399454,
+    "min_error": 324.30154592284106,
+    "max_error": 1443.7929107851717,
+    "median_error": 839.6416266614847,
+    "rmse": 948.4508458708052
+  },
+  "per_gcp": {
+    "1": {
+      "count": 2,
+      "mean_error": 1442.7780493018959,
+      "max_error": 1443.7929107851717,
+      "rmse": 1442.7784062326461
+    },
+    "2": {
+      "count": 3,
+      "mean_error": 837.8909295430025,
+      "max_error": 839.6416266614847,
+      "rmse": 837.8921667047696
+    },
+    "3": {
+      "count": 2,
+      "mean_error": 720.7098467438273,
+      "max_error": 727.1336229290363,
+      "rmse": 720.7384741319064
+    },
+    "4": {
+      "count": 3,
+      "mean_error": 1153.679228596742,
+      "max_error": 1166.786071521132,
+      "rmse": 1153.7286123445363
+    },
+    "5": {
+      "count": 2,
+      "mean_error": 957.3865151243408,
+      "max_error": 966.2626069236377,
+      "rmse": 957.4276601120104
+    },
+    "6": {
+      "count": 3,
+      "mean_error": 345.23742278832134,
+      "max_error": 366.1843649050934,
+      "rmse": 345.66058483584544
+    }
+  },
+  "per_image": {
+    "1061": {
+      "count": 2,
+      "mean_error": 1138.9390742679584,
+      "max_error": 1441.7631878186203,
+      "rmse": 1178.5095072344975
+    },
+    "1062": {
+      "count": 1,
+      "mean_error": 1443.7929107851717,
+      "max_error": 1443.7929107851717,
+      "rmse": 1443.7929107851717
+    },
+    "1059": {
+      "count": 1,
+      "mean_error": 839.6416266614847,
+      "max_error": 839.6416266614847,
+      "rmse": 839.6416266614847
+    },
+    "1060": {
+      "count": 1,
+      "mean_error": 837.9162012502263,
+      "max_error": 837.9162012502263,
+      "rmse": 837.9162012502263
+    },
+    "1043": {
+      "count": 1,
+      "mean_error": 714.2860705586182,
+      "max_error": 714.2860705586182,
+      "rmse": 714.2860705586182
+    },
+    "1044": {
+      "count": 1,
+      "mean_error": 727.1336229290363,
+      "max_error": 727.1336229290363,
+      "rmse": 727.1336229290363
+    },
+    "1008": {
+      "count": 1,
+      "mean_error": 1166.786071521132,
+      "max_error": 1166.786071521132,
+      "rmse": 1166.786071521132
+    },
+    "1009": {
+      "count": 1,
+      "mean_error": 1153.612768806229,
+      "max_error": 1153.612768806229,
+      "rmse": 1153.612768806229
+    },
+    "1010": {
+      "count": 2,
+      "mean_error": 1053.4507261932513,
+      "max_error": 1140.6388454628648,
+      "rmse": 1057.0526007057836
+    },
+    "1011": {
+      "count": 1,
+      "mean_error": 948.510423325044,
+      "max_error": 948.510423325044,
+      "rmse": 948.510423325044
+    },
+    "1019": {
+      "count": 1,
+      "mean_error": 366.1843649050934,
+      "max_error": 366.1843649050934,
+      "rmse": 366.1843649050934
+    },
+    "1020": {
+      "count": 1,
+      "mean_error": 345.22635753702957,
+      "max_error": 345.22635753702957,
+      "rmse": 345.22635753702957
+    },
+    "1021": {
+      "count": 1,
+      "mean_error": 324.30154592284106,
+      "max_error": 324.30154592284106,
+      "rmse": 324.30154592284106
+    }
+  },
+  "details": [
+    {
+      "gcp_id": "1",
+      "gcp_name": "L4_UVT + 69_3_bldgs",
+      "image_id": 1061,
+      "measured_u": 4431.97,
+      "measured_v": 2995.34188,
+      "projected_u": 3011.346692164459,
+      "projected_v": 2749.353044921424,
+      "error": 1441.7631878186203,
+      "valid": true,
+      "distance_m": 1437.9146203569164,
+      "u_photo": 431.97,
+      "v_photo": 4.65812
+    },
+    {
+      "gcp_id": "1",
+      "gcp_name": "L4_UVT + 69_3_bldgs",
+      "image_id": 1062,
+      "measured_u": 4425.12,
+      "measured_v": 2991.7654899999998,
+      "projected_u": 3005.51064335716,
+      "projected_v": 2728.6167796371697,
+      "error": 1443.7929107851717,
+      "valid": true,
+      "distance_m": 1438.5549534095856,
+      "u_photo": 425.12,
+      "v_photo": 8.23451
+    },
+    {
+      "gcp_id": "2",
+      "gcp_name": "L4_UVT + 67_dmnd_bldg",
+      "image_id": 1059,
+      "measured_u": 4518.88,
+      "measured_v": 2985.9487,
+      "projected_u": 3686.7451603181494,
+      "projected_v": 3097.9740087940604,
+      "error": 839.6416266614847,
+      "valid": true,
+      "distance_m": 1432.0016836614523,
+      "u_photo": 518.88,
+      "v_photo": 14.0513
+    },
+    {
+      "gcp_id": "2",
+      "gcp_name": "L4_UVT + 67_dmnd_bldg",
+      "image_id": 1060,
+      "measured_u": 4512.34,
+      "measured_v": 2981.2179,
+      "projected_u": 3680.068097128045,
+      "projected_v": 3078.3108451994553,
+      "error": 837.9162012502263,
+      "valid": true,
+      "distance_m": 1432.522485956882,
+      "u_photo": 512.34,
+      "v_photo": 18.7821
+    },
+    {
+      "gcp_id": "2",
+      "gcp_name": "L4_UVT + 67_dmnd_bldg",
+      "image_id": 1061,
+      "measured_u": 4505.67,
+      "measured_v": 2977.8766,
+      "projected_u": 3673.4634789746274,
+      "projected_v": 3058.6264228984573,
+      "error": 836.1149607172965,
+      "valid": true,
+      "distance_m": 1433.0448366757587,
+      "u_photo": 505.67,
+      "v_photo": 22.1234
+    },
+    {
+      "gcp_id": "3",
+      "gcp_name": "L4_UVT + 45_solar_panels",
+      "image_id": 1043,
+      "measured_u": 4179.254,
+      "measured_v": 3013.6656,
+      "projected_u": 3793.5583783418842,
+      "projected_v": 2412.4639050357964,
+      "error": 714.2860705586182,
+      "valid": true,
+      "distance_m": 1422.738729554697,
+      "u_photo": 179.254,
+      "v_photo": -13.6656
+    },
+    {
+      "gcp_id": "3",
+      "gcp_name": "L4_UVT + 45_solar_panels",
+      "image_id": 1044,
+      "measured_u": 4172.891,
+      "measured_v": 3009.87231,
+      "projected_u": 3787.305368320559,
+      "projected_v": 2393.3927675687264,
+      "error": 727.1336229290363,
+      "valid": true,
+      "distance_m": 1423.2229905108445,
+      "u_photo": 172.891,
+      "v_photo": -9.87231
+    },
+    {
+      "gcp_id": "4",
+      "gcp_name": "L4_UVT + 09_playground",
+      "image_id": 1008,
+      "measured_u": 3401.044,
+      "measured_v": 2976.9372,
+      "projected_u": 4558.788302623712,
+      "projected_v": 2831.961800576339,
+      "error": 1166.786071521132,
+      "valid": true,
+      "distance_m": 1409.8755128433033,
+      "u_photo": -598.956,
+      "v_photo": 23.0628
+    },
+    {
+      "gcp_id": "4",
+      "gcp_name": "L4_UVT + 09_playground",
+      "image_id": 1009,
+      "measured_u": 3407.877,
+      "measured_v": 2972.5488,
+      "projected_u": 4550.641202802924,
+      "projected_v": 2814.7121846505484,
+      "error": 1153.612768806229,
+      "valid": true,
+      "distance_m": 1410.2077133478174,
+      "u_photo": -592.123,
+      "v_photo": 27.4512
+    },
+    {
+      "gcp_id": "4",
+      "gcp_name": "L4_UVT + 09_playground",
+      "image_id": 1010,
+      "measured_u": 3414.766,
+      "measured_v": 2968.1077,
+      "projected_u": 4542.562626441078,
+      "projected_v": 2797.427457537722,
+      "error": 1140.6388454628648,
+      "valid": true,
+      "distance_m": 1410.5416009788348,
+      "u_photo": -585.234,
+      "v_photo": 31.8923
+    },
+    {
+      "gcp_id": "5",
+      "gcp_name": "L4_UVT + 11_roof_corner",
+      "image_id": 1010,
+      "measured_u": 3453.636,
+      "measured_v": 2983.5902,
+      "projected_u": 4397.478066024283,
+      "projected_v": 3190.5336220792656,
+      "error": 966.2626069236377,
+      "valid": true,
+      "distance_m": 1407.093815965957,
+      "u_photo": -546.364,
+      "v_photo": 16.4098
+    },
+    {
+      "gcp_id": "5",
+      "gcp_name": "L4_UVT + 11_roof_corner",
+      "image_id": 1011,
+      "measured_u": 3460.188,
+      "measured_v": 2979.2766,
+      "projected_u": 4388.739561745654,
+      "projected_v": 3172.832845923404,
+      "error": 948.510423325044,
+      "valid": true,
+      "distance_m": 1407.4688214587911,
+      "u_photo": -539.812,
+      "v_photo": 20.7234
+    },
+    {
+      "gcp_id": "6",
+      "gcp_name": "L4_UVT + 20_roof_corner",
+      "image_id": 1019,
+      "measured_u": 3590.67,
+      "measured_v": 2998.36586,
+      "projected_u": 3818.625301747172,
+      "projected_v": 3284.944591775933,
+      "error": 366.1843649050934,
+      "valid": true,
+      "distance_m": 1406.8889860509953,
+      "u_photo": -409.33,
+      "v_photo": 1.63414
+    },
+    {
+      "gcp_id": "6",
+      "gcp_name": "L4_UVT + 20_roof_corner",
+      "image_id": 1020,
+      "measured_u": 3597.433,
+      "measured_v": 2994.10877,
+      "projected_u": 3810.1317087997795,
+      "projected_v": 3266.0287898830375,
+      "error": 345.22635753702957,
+      "valid": true,
+      "distance_m": 1407.379803649804,
+      "u_photo": -402.567,
+      "v_photo": 5.89123
+    },
+    {
+      "gcp_id": "6",
+      "gcp_name": "L4_UVT + 20_roof_corner",
+      "image_id": 1021,
+      "measured_u": 3604.188,
+      "measured_v": 2989.8766,
+      "projected_u": 3801.7106076762266,
+      "projected_v": 3247.085293758061,
+      "error": 324.30154592284106,
+      "valid": true,
+      "distance_m": 1407.8722188296906,
+      "u_photo": -395.812,
+      "v_photo": 10.1234
+    }
+  ]
+}
