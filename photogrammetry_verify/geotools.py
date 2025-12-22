@@ -5,7 +5,7 @@ import os
 import numpy as np
 import pyproj
 from scipy.spatial.transform import Rotation as R, Slerp
-from rotations import *
+from liblibor.rotations import *
 from pyproj import CRS, Transformer
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,7 +70,6 @@ proj_lla = pyproj.Proj(proj='latlong', ellps='WGS84', datum='WGS84')
 lla2ecefTransformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:4978", always_xy=True)
 ecef2llaTransformer = pyproj.Transformer.from_crs("EPSG:4978", "EPSG:4326")
 
-from rotations import *
 
 class TangentPlane:
     def __init__(self, lat, lon, alt=0):

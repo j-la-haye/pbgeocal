@@ -45,7 +45,7 @@ conventions:
   # Correspondence file format: 'bingo' or 'csv'
   correspondence_format: bingo
   # Trajectory file format: 'csv' or 'sbet'
-  trajectory_format: csv
+  trajectory_format: sbet
 
 # Input file paths (relative to this config file)
 files:

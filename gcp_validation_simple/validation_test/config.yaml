@@ -1,0 +1,40 @@
+# Test configuration for GCP validation script
+
+camera:
+  fx: 1683.01
+  fy: 1683.01
+  cx: 0
+  cy: 0
+  k1: 0
+  k2: 0.00
+  k3: 0.0
+  p1: 0.0
+  p2: 0.0
+  image_width: 1240
+  image_height: 1240
+
+lever_arm:
+  x: 0.076
+  y: -0.290324
+  z: -0.1
+
+boresight:
+  roll: 180.0
+  pitch: 0.0
+  yaw: 0.0
+
+conventions:
+  v_axis_up: false
+
+files:
+  gcp_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/GCP.txt"
+  bingo_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/bingo.txt"
+  timing_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/image_timestamps.txt"     # Cols: id, time
+  trajectory_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/reference.out" # Cols: timestamp, x, y, z, roll, pitch, yaw
+
+validation_threshold: 3.0
+
+project:
+  epsg: 2056  # CH1903+ / LV95
+
+

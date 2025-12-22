@@ -11,15 +11,12 @@ from photogrammetry_verify.geometry import world_to_image
 from photogrammetry_verify.geotools import GeoConverter
 from photogrammetry_verify.io_utils import load_config, load_3d_csv, load_timing_file, parse_bingo_file
 from photogrammetry_verify.trajectory import TrajectoryInterpolator
+from photogrammetry_verify.geotools import get_grid_convergence
 # Package imports
-from photogrammetry_verify.camera import CameraModel
-from photogrammetry_verify.transforms import Transform
-from photogrammetry_verify.geometry import world_to_image
-from photogrammetry_verify.geotools import GeoConverter
-from liblibor.map import TangentPlane, Trajectory,log
+from liblibor.map import TangentPlane, Trajectory,log, loadSBET
 from liblibor.rotations import *
-from photogrammetry_verify.io_utils import *
 from pyproj import CRS, Transformer
+from scipy.spatial.transform import Rotation as R
 
 def run_bingo_verification(config_path):
     # 1. Load Configuration & Static Data
@@ -39,7 +36,7 @@ def run_bingo_verification(config_path):
     
     log("[2/3] Loading SBET data...", verbose=True, force=True)
     # Extract time, lla, rpy from sbet_df
-    t,lla,rpy,_ = read_sbet(Path(cfg['project']['trajectory']))
+    t,lla,rpy = loadSBET(Path(cfg['project']['trajectory']))
     
     mask = (t >= img_time_span[0]) & (t <= img_time_span[1])
     #tspan = t[mask]
@@ -85,6 +82,7 @@ def run_bingo_verification(config_path):
     #Filter BINGO data to only tiepoint_id < 1000 corresponding to 3D Checkpoints
     bingo_data = [block for block in bingo_data if (int(block['points']['tiepoint_id'].iloc[0]) < 1000)]
 
+    all_results = []
     # 3. Process Each Image Block
     for img_block in bingo_data:
         img_id = img_block['img_id']
@@ -108,11 +106,22 @@ def run_bingo_verification(config_path):
         except ValueError:
             print(f"Skipping {img_id}: Time {timestamp} out of trajectory bounds.")
             continue
-            
+
+        # 2. General Grid Convergence
+        # We need lon/lat to find convergence at this specific spot
+        # (Assuming your interpolator can provide lon/lat or you back-project pos_grid)
+        lon, lat = pose.lla[1], pose.lla[0]
+        gamma = get_grid_convergence(cfg['project']['epsg'], lon, lat)
+
+        # 3. Create Rotation: Grid -> True -> Body
+        R_grid_true = R.from_euler('z', gamma, degrees=True)
+        R_grid_body = R_grid_true * R.from_matrix(pose.R_ned2b)
+        
+
         # Create NED -> Body Transform for this specific time
         # Convert Scipy Rotation to Euler for our Transform class, or modify Transform to accept Rotation object
         # Here we just re-wrap it:
-        from scipy.spatial.transform import Rotation as R
+        
         T_ned_body = Transform([0,0,0], [0,0,0]) # Placeholder init
         T_ned_body.t = pose.ENH
         T_ned_body.r = R.from_matrix(pose.R_ned2b)
@@ -126,6 +135,38 @@ def run_bingo_verification(config_path):
         if valid_obs.empty:
             continue
 
+        # Localize in Grid Frame
+        tie_ids = valid_obs['tiepoint_id'].astype(int).values
+        xyz_world = df_3d.loc[tie_ids][['x', 'y', 'z']].values
+        p_rel_grid = xyz_world - pose.ENH
+        
+        # Transform to Body
+        p_body = R_grid_body.inv().apply(p_rel_grid) - np.array(cfg['mount']['lever_arm'])
+        
+        # Transform to Camera (Apply Boresight from Config)
+        T_body_cam = R.from_euler(cfg['mount']['rotation_order'], 
+                                  cfg['mount']['rotation_euler'], degrees=True)
+        p_cam = T_body_cam.apply(p_body)
+        
+        # 5. Image Projection (BINGO U/V to Pixel U/V)
+        # BINGO U is Right, V is UP. Pixel U is Right, V is DOWN.
+        obs_u_px = camera.K[0, 2] + valid_obs['u_bingo'].values
+        obs_v_px = camera.K[1, 2] - valid_obs['v_bingo'].values
+        obs_px = np.stack([obs_u_px, obs_v_px], axis=1)
+
+        # Final Projection using Pinhole Logic
+        depths = p_cam[:, 2]
+        proj_u = camera.K[0,0] * (p_cam[:,0]/depths) + camera.K[0,2]
+        proj_v = camera.K[1,1] * (p_cam[:,1]/depths) + camera.K[1,2]
+        proj_uv = np.stack([proj_u, proj_v], axis=1)
+        
+        print(f"obs_uv: {obs_px} vs. proj_uv: {proj_uv}" )
+        # 6. Error Calculation
+        
+        err = np.linalg.norm(obs_px - proj_uv, axis=1)
+        all_results.extend(err)
+        print(f"Img {img_id}: Mean Err {np.mean(err):.2f}px | Depth: {np.mean(depths):.1f}m,")
+        
         # Extract Arrays
         tie_ids = valid_obs['tiepoint_id'].astype(int).values
         # BINGO Coords: U (Right), V (Up/Down?) relative to Principal Point
@@ -140,53 +181,52 @@ def run_bingo_verification(config_path):
         obs_v_px = camera.K[1, 2] - bingo_v 
         obs_px = np.stack([obs_u_px, obs_v_px], axis=1)
 
-        xyz_3d = df_3d.loc[tie_ids][['x', 'y', 'z']].values
+        # # E. Rigorous Projection (Geo -> ENU -> NED -> Cam)
+        # # 1. Skip the geo.get_local_enu_points logic entirely
+        # # Just use the Swiss coordinates directly from the CSV
+        # xyz_world = df_3d.loc[tie_ids][['x', 'y', 'z']].values 
 
-        # 1. Skip the geo.get_local_enu_points logic entirely
-        # Just use the Swiss coordinates directly from the CSV
-        xyz_world = df_3d.loc[tie_ids][['x', 'y', 'z']].values 
-
-        # 2. Define the Camera Pose in Swiss Grid
-        # T_world_body.t is the Swiss ENH of the platform
-        T_world_body = Transform(pose.ENH, [0,0,0]) 
-        T_world_body.r = R.from_matrix(pose.R_ned2b)
+        # # 2. Define the Camera Pose in Swiss Grid
+        # # T_world_body.t is the Swiss ENH of the platform
+        # T_world_body = Transform(pose.ENH, [0,0,0]) 
+        # T_world_body.r = R.from_matrix(pose.R_ned2b)
 
        
-        # Localize ENU around the drone's current position
-        platform_pos_global = np.array([pose.ENH])  # lat, lon, alt
+        # # Localize ENU around the drone's current position
+        # platform_pos_global = np.array([pose.ENH])  # lat, lon, alt
         
-        # Note: If trajectory CSV is already Local NED, skip geo conversion. 
-        # Assuming Trajectory CSV is Geo (Lat/Lon/Alt) or ECEF? 
-        # *CRITICAL*: The 'pos_interp' must match the units of 'geo.to_ecef'.
-        #lon, lat, _ = geo.to_wgs84_transformer.transform(pose.ENH[0], pose.ENH[1], pose.ENH[2])
-        # Assuming Trajectory CSV contains Lat/Lon/Alt for this example:
+        # # Note: If trajectory CSV is already Local NED, skip geo conversion. 
+        # # Assuming Trajectory CSV is Geo (Lat/Lon/Alt) or ECEF? 
+        # # *CRITICAL*: The 'pos_interp' must match the units of 'geo.to_ecef'.
+        # #lon, lat, _ = geo.to_wgs84_transformer.transform(pose.ENH[0], pose.ENH[1], pose.ENH[2])
+        # # Assuming Trajectory CSV contains Lat/Lon/Alt for this example:
         
-        lon, lat, _ = geo.to_wgs84_transformer.transform(pose.ENH[0], pose.ENH[1], pose.ENH[2])
-        platform_ecef = geo.to_ecef(platform_pos_global.reshape(1,3))[0]
+        # lon, lat, _ = geo.to_wgs84_transformer.transform(pose.ENH[0], pose.ENH[1], pose.ENH[2])
+        # platform_ecef = geo.to_ecef(platform_pos_global.reshape(1,3))[0]
 
-        # Convert 3D GCPs to Local ENU
-        world_ecef = geo.to_ecef(xyz_3d)
-        world_enu = geo.get_local_enu_points(world_ecef, platform_ecef, (lon, lat))
+        # # Convert 3D GCPs to Local ENU
+        # world_ecef = geo.to_ecef(xyz_3d)
+        # world_enu = geo.get_local_enu_points(world_ecef, platform_ecef, (lon, lat))
         
-        # ENU -> NED
-        world_ned = world_enu @ T_enu_ned() #[:, [1, 0, 2]]
-        #world_ned[:, 2] *= -1
+        # # ENU -> NED
+        # world_ned = world_enu @ T_enu_ned() #[:, [1, 0, 2]]
+        # #world_ned[:, 2] *= -1
 
-        # Project
-        #proj_uv, _ = world_to_image(world_ned, T_ned_body, T_body_cam, camera)
+        # # Project
+        # #proj_uv, _ = world_to_image(world_ned, T_ned_body, T_body_cam, camera)
 
-         # 3. Project
-        # geometry.world_to_image will handle (P_world - T_world_body.t)
-        proj_uv, _ = world_to_image(xyz_world, T_world_body, T_body_cam, camera)
-                # E. Rigorous Projection (Geo -> ENU -> NED -> Cam)
+        #  # 3. Project
+        # # geometry.world_to_image will handle (P_world - T_world_body.t)
+        # proj_uv, _ = world_to_image(xyz_world, T_world_body, T_body_cam, camera)
+        #         # E. Rigorous Projection (Geo -> ENU -> NED -> Cam)
         
         
-        # Errors
-        residuals = obs_px - proj_uv
-        errors = np.linalg.norm(residuals, axis=1)
+        # # Errors
+        # residuals = obs_px - proj_uv
+        # errors = np.linalg.norm(residuals, axis=1)
         
-        print(f"Image {img_id} (t={timestamp:.4f}): {len(errors)} pts, RMSE={np.sqrt(np.mean(errors**2)):.2f} px")
-        global_errors.extend(errors)
+        # print(f"Image {img_id} (t={timestamp:.4f}): {len(errors)} pts, RMSE={np.sqrt(np.mean(errors**2)):.2f} px")
+        # global_errors.extend(errors)
 
     print(f"\nTotal RMSE: {np.sqrt(np.mean(np.array(global_errors)**2)):.4f} px")
 
