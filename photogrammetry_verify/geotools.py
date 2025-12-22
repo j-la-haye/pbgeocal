@@ -675,3 +675,26 @@ def load_image_timestamps(exif_root: Path, exif_ext: str, image_exts: List[str],
     log(f"Loaded {len(stamps)} image timestamps", verbose=verbose, force=True)
     return stamps
 
+
+def get_grid_convergence(epsg, lon, lat):
+    """
+    Calculates the convergence angle (gamma) for any projected CRS.
+    Returns the angle in degrees between True North and Grid North.
+    
+    Positive gamma: Grid North is West of True North.
+    Formula: Heading_grid = Heading_true - gamma
+    """
+    # Create transformer from WGS84 to the target EPSG
+    transformer = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
+    
+    # 1. Project the current point
+    x0, y0 = transformer.transform(lon, lat)
+    
+    # 2. Project a point slightly North (e.g., +0.01 degrees Lat)
+    x1, y1 = transformer.transform(lon, lat + 0.01)
+    
+    # 3. Calculate the angle of the Grid North vector in the project plane
+    # atan2(dx, dy) gives the deviation from the Y-axis
+    gamma_rad = np.arctan2(x1 - x0, y1 - y0)
+    
+    return np.degrees(gamma_rad)
