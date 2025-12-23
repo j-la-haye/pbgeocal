@@ -10,8 +10,8 @@ camera:
   k3: 0.0
   p1: 0.0
   p2: 0.0
-  image_width: 1240
-  image_height: 1240
+  width: 1240
+  height: 1240
 
 lever_arm:
   x: 0.076
@@ -19,7 +19,7 @@ lever_arm:
   z: -0.1
 
 boresight:
-  roll: 180.0
+  roll: 0.0
   pitch: 0.0
   yaw: 0.0
 
