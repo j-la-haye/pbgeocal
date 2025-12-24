@@ -618,15 +618,9 @@ def transform_ecef_to_camera(
     R_body_ned = rotation_ned_to_body(roll, pitch, yaw)
     R_body_ecef = R_body_ned @ R_ned_ecef  # Body ← NED ← ECEF
     R_ecef_body = R_body_ecef.T            # ECEF ← Body (transpose = inverse for rotation)
-
-    Re2n = R_ned2e(latitude,longitude).T
-    Rn2b = R_ned2b(roll,pitch,yaw)
-    Rned2body=R3(yaw)@R2(pitch)@R1(roll)
-    Re2b =  Rn2b @ Re2n
-    R_b2e = Re2b.T
-
+    
     # Transform lever arm from body to ECEF and add to get camera position
-    lever_arm_ecef = R_b2e @ lever_arm
+    lever_arm_ecef = R_ecef_body @ lever_arm
     camera_ecef = imu_ecef + lever_arm_ecef
     
     # Step 2: Vector from camera to point in ECEF (N, 3)
@@ -634,7 +628,7 @@ def transform_ecef_to_camera(
     
     # Step 3: Build full rotation chain ECEF → Camera
     # Boresight correction (small rotation applied before body-to-camera)
-    R_boresight = rotation_ned_to_body(boresight[0], boresight[1], boresight[2], degree=True)
+    R_boresight = rotation_ned_to_body(boresight[0], boresight[1], boresight[2])
     
     # Body to camera (fixed rotation)
     R_cam_body = rotation_body_to_camera()
@@ -934,7 +928,7 @@ def run_validation(config_path: str, verbose: bool = True):
         gcp_ecef = np.array([[gcps[tid].x, gcps[tid].y, gcps[tid].z] for tid in tie_ids])
 
         # Transform GCP to camera frame
-        points_camera = transform_ecef_to_camera(
+        point_camera = transform_ecef_to_camera(
             gcp_ecef, pose, lever_arm, boresight
         )
         
