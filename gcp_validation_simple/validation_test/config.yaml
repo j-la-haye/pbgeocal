@@ -1,8 +1,8 @@
 # Test configuration for GCP validation script
 
 camera:
-  fx: 1683.01
-  fy: 1683.01
+  fx: 1696.41
+  fy: 1696.41
   cx: 0
   cy: 0
   k1: 0
@@ -10,16 +10,15 @@ camera:
   k3: 0.0
   p1: 0.0
   p2: 0.0
-  image_width: 1240
-  image_height: 1240
+  width: 1240
+  height: 1240
 
 lever_arm:
   x: 0.076
   y: -0.290324
-  z: -0.1
-
+  z: -0.10
 boresight:
-  roll: 180.0
+  roll: 0.0
   pitch: 0.0
   yaw: 0.0
 

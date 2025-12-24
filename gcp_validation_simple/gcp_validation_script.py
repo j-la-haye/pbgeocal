@@ -347,8 +347,8 @@ def geodetic_to_ecef(lat: float, lon: float, height: float) -> np.ndarray:
     Returns:
         ECEF coordinates as numpy array [X, Y, Z]
     """
-    lat_rad = np.radians(lat)
-    lon_rad = np.radians(lon)
+    lat_rad = lat #np.radians(lat)
+    lon_rad = lon #np.radians(lon)
     
     sin_lat = np.sin(lat_rad)
     cos_lat = np.cos(lat_rad)
@@ -386,8 +386,8 @@ def rotation_ecef_to_ned(lat: float, lon: float) -> np.ndarray:
     Returns:
         3x3 rotation matrix R such that v_ned = R @ v_ecef
     """
-    lat_rad = np.radians(lat)
-    lon_rad = np.radians(lon)
+    lat_rad = lat #np.radians(lat)
+    lon_rad = lon #np.radians(lon)
     
     sin_lat = np.sin(lat_rad)
     cos_lat = np.cos(lat_rad)
@@ -404,7 +404,7 @@ def rotation_ecef_to_ned(lat: float, lon: float) -> np.ndarray:
     return R
 
 
-def rotation_ned_to_body(roll: float, pitch: float, yaw: float) -> np.ndarray:
+def rotation_ned_to_body(roll: float, pitch: float, yaw: float,degree=False) -> np.ndarray:
     """
     Compute rotation matrix from NED to Body frame using ZYX Euler angles.
     
@@ -425,9 +425,13 @@ def rotation_ned_to_body(roll: float, pitch: float, yaw: float) -> np.ndarray:
     Returns:
         3x3 rotation matrix R such that v_body = R @ v_ned
     """
-    phi = np.radians(roll)
-    theta = np.radians(pitch)
-    psi = np.radians(yaw)
+    if degree:
+        roll = np.radians(roll)
+        pitch = np.radians(pitch)
+        yaw = np.radians(yaw)
+    phi = roll
+    theta = pitch
+    psi = yaw
     
     cos_phi, sin_phi = np.cos(phi), np.sin(phi)
     cos_theta, sin_theta = np.cos(theta), np.sin(theta)
@@ -593,16 +597,32 @@ def transform_ecef_to_camera(
     """
     # Step 1: Compute camera position in ECEF
     # First get IMU position
-    imu_ecef = geodetic_to_ecef(pose.latitude, pose.longitude, pose.height)
+    latitude = pose.lla[0]
+    longitude = pose.lla[1]
+    height = pose.lla[2]
+    roll = pose.rpy[0]
+    pitch = pose.rpy[1]
+    yaw = pose.rpy[2]
+
+    imu_ecef = geodetic_to_ecef(latitude, longitude, height)
     
+    lla2ecefTransformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:4978", always_xy=True)
+    imu_ecef = np.array(lla2ecefTransformer.transform(longitude, latitude, height, radians=True)).reshape(1,3)
+
     # Build rotation from body to ECEF (for lever arm transformation)
-    R_ned_ecef = rotation_ecef_to_ned(pose.latitude, pose.longitude)
-    R_body_ned = rotation_ned_to_body(pose.roll, pose.pitch, pose.yaw)
+    R_ned_ecef = rotation_ecef_to_ned(latitude, longitude)
+    R_body_ned = rotation_ned_to_body(roll, pitch, yaw)
     R_body_ecef = R_body_ned @ R_ned_ecef  # Body ← NED ← ECEF
     R_ecef_body = R_body_ecef.T            # ECEF ← Body (transpose = inverse for rotation)
-    
+
+    Re2n = R_ned2e(latitude,longitude).T
+    Rn2b = R_ned2b(roll,pitch,yaw)
+    Rned2body=R3(yaw)@R2(pitch)@R1(roll)
+    Re2b =  Rn2b @ Re2n
+    R_b2e = Re2b.T
+
     # Transform lever arm from body to ECEF and add to get camera position
-    lever_arm_ecef = R_ecef_body @ lever_arm
+    lever_arm_ecef = R_b2e @ lever_arm
     camera_ecef = imu_ecef + lever_arm_ecef
     
     # Step 2: Vector from camera to point in ECEF
@@ -610,7 +630,7 @@ def transform_ecef_to_camera(
     
     # Step 3: Build full rotation chain ECEF → Camera
     # Boresight correction (small rotation applied before body-to-camera)
-    R_boresight = rotation_ned_to_body(boresight[0], boresight[1], boresight[2])
+    R_boresight = rotation_ned_to_body(boresight[0], boresight[1], boresight[2], degree=True)
     
     # Body to camera (fixed rotation)
     R_cam_body = rotation_body_to_camera()
@@ -619,7 +639,12 @@ def transform_ecef_to_camera(
     R_cam_ecef = R_cam_body @ R_boresight @ R_body_ecef
     
     # Transform point to camera frame
-    point_camera = R_cam_ecef @ delta_ecef
+    # Handle both single point (1D) and multiple points (2D)
+    if delta_ecef.ndim == 1:
+        point_camera = R_cam_ecef @ delta_ecef
+    else:
+        # For multiple points: (3, 3) @ (n, 3).T = (3, n), then transpose to (n, 3)
+        point_camera = (R_cam_ecef @ delta_ecef.T).T
     
     return point_camera
 
@@ -696,6 +721,8 @@ def run_validation(config_path: str, verbose: bool = True):
     
     # Camera intrinsics
     cam_cfg = config['camera']
+
+    camera_model = CameraModel.from_dict(config['camera'])
     camera = CameraIntrinsics(
         fx=cam_cfg['fx'],
         fy=cam_cfg['fy'],
@@ -876,8 +903,8 @@ def run_validation(config_path: str, verbose: bool = True):
         
         # 5. Image Projection (BINGO U/V to Pixel U/V)
         # BINGO U is Right, V is UP. Pixel U is Right, V is DOWN.
-        obs_u_px = camera.K[0, 2] + valid_obs['u_bingo'].values
-        obs_v_px = camera.K[1, 2] - valid_obs['v_bingo'].values
+        obs_u_px = camera_model.K[0, 2] + valid_obs['u_bingo'].values
+        obs_v_px = camera_model.K[1, 2] - valid_obs['v_bingo'].values
         obs_px = np.stack([obs_u_px, obs_v_px], axis=1)
 
         # Localize in Grid Frame
@@ -885,35 +912,39 @@ def run_validation(config_path: str, verbose: bool = True):
         gcp_ecef = np.array([[gcps[tid].x, gcps[tid].y, gcps[tid].z] for tid in tie_ids])
 
         # Transform GCP to camera frame
-        point_camera = transform_ecef_to_camera(
+        points_camera = transform_ecef_to_camera(
             gcp_ecef, pose, lever_arm, boresight
         )
         
-        # Project to image
-        proj_u, proj_v, valid = project_to_image(point_camera, camera)
-        
-        if not valid:
-            print(f"    WARNING: Invalid projection for GCP {gcp_id} in image {img_id} "
-                  f"(point behind camera, Z={point_camera[2]:.1f})")
-            continue
-        
-        # Compute error
-        error = np.sqrt((proj_u - obs.u_pixel) ** 2 + (proj_v - obs.v_pixel) ** 2)
-        
-        results.append({
-            'gcp_id': obs.gcp_id,
-            'gcp_name': obs.gcp_name,
-            'image_id': obs.image_id,
-            'measured_u': obs.u_pixel,
-            'measured_v': obs.v_pixel,
-            'projected_u': proj_u,
-            'projected_v': proj_v,
-            'residual_u': proj_u - obs.u_pixel,
-            'residual_v': proj_v - obs.v_pixel,
-            'error': error,
-            'distance_m': np.linalg.norm(point_camera),
-            'point_camera': point_camera.copy(),
-        })
+        # Process each GCP observation
+        for idx, (tid, obs_px_single) in enumerate(zip(tie_ids, obs_px)):
+            point_camera = points_camera[idx]
+            
+            # Project to image
+            proj_u, proj_v, valid = project_to_image(point_camera, camera)
+            
+            if not valid:
+                print(f"    WARNING: Invalid projection for GCP {tid} in image {img_id} "
+                      f"(point behind camera, Z={point_camera[2]:.1f})")
+                continue
+            
+            # Compute error
+            error = np.sqrt((proj_u - obs_px_single[0]) ** 2 + (proj_v - obs_px_single[1]) ** 2)
+            
+            results.append({
+                'gcp_id': tid,
+                'gcp_name': f'GCP_{tid}',
+                'image_id': img_id,
+                'measured_u': obs_px_single[0],
+                'measured_v': obs_px_single[1],
+                'projected_u': proj_u,
+                'projected_v': proj_v,
+                'residual_u': proj_u - obs_px_single[0],
+                'residual_v': proj_v - obs_px_single[1],
+                'error': error,
+                'distance_m': np.linalg.norm(point_camera),
+                'point_camera': point_camera.copy(),
+            })
     
     print(f"    Processed {len(results)} valid reprojections")
     

@@ -17,8 +17,8 @@ camera:
   fov: 40.2 # degrees
   # BINGO coordinates are typically centered. 
   # This script converts them to Top-Left using these cx/cy values.
-  cx: 0
-  cy: 0
+  cx: 619.5
+  cy: 619.5
   distortion: [0, 0, 0, 0, 0]
 
 mount:
