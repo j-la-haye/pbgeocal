@@ -29,7 +29,7 @@ class TangentPlane:
         self.xyz0 = np.array(lla2ecefTransformer.transform(self.lat,self.lon,self.alt, radians=True)).reshape(1,3)
 
         self.R_ecef2enu = T_enu_ned() @ R_ned2e(self.lat, self.lon).T
-        print("R_ecef2enu:", self.R_ecef2enu)
+        #print("R_ecef2enu:", self.R_ecef2enu)
 
 class Trajectory:
     def __init__(self, t, lla, rpy, tp, t_span=None,radians=True):

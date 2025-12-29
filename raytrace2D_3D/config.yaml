@@ -1,0 +1,37 @@
+project:
+  name: "Clmbier_Cal_test_3D_Checkpoints"
+  epsg: 2056  # CH 1903+ / LV95
+paths:
+  gcp_file: "/media/lasigadmin/SFS-04SS-0424/AV4_Proc/Clmbier_Cal_test/GCP.txt"
+  bingo_file: "/media/lasigadmin/SFS-04SS-0424/AV4_Proc/Clmbier_Cal_test/bingo.txt"
+  timing_file: "/media/lasigadmin/SFS-04SS-0424/AV4_Proc/Clmbier_Cal_test/image_timestamps.txt"     # Cols: id, time
+  sbet_file: "/media/lasigadmin/SFS-04SS-0424/AV4_Proc/Clmbier_Cal_test/reference.out" # Cols: timestamp, x, y, z, roll, pitch, yaw
+  output_report: "output/triangulation_report.csv"
+
+
+camera:
+  focal_length_px: 1697.41   # fx, fy (assuming square pixels)
+  principal_point: [0, 0]  # cx, cy
+  image_size: [1241, 1241]  # width, height
+
+mounting:
+  # Physical offset from IMU center to Camera center in Body Frame (meters)
+  lever_arm: [0.076, -0.290324, -0.10]
+  
+  # Nominal rotation to align Body frame with Camera Frame (Degrees)
+  # [0, 0, -90] maps Body X->Forward to Camera X->Right
+  nominal_mount_rpy_deg: [0.0, 0.0, -90.0]
+  
+  # Small calibration corrections (Radians)
+  boresight_rpy_rad: [0.0, 0.0, 0.0]
+
+sbet_format:
+  # Angles in input file are assumed to be RADIANS. 
+  # If degrees, logic in loader needs adjustment.
+  lat_col: 1
+  lon_col: 2
+  alt_col: 3
+  roll_col: 4
+  pitch_col: 5
+  yaw_col: 6
+  image_id_col: 0  # Assuming first column is a link to BINGO image ID

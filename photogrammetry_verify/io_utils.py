@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Dict, Tuple
 import numpy as np
 import csv
+import pyproj
 
 @dataclass
 class BoresightCalibration:
@@ -62,6 +63,25 @@ class CameraPose:
     heading: float  # degrees
     image_name: str = None
 
+@dataclass
+class GCPObservation:
+    """A GCP observation in an image."""
+    gcp_id: int
+    gcp_name: str
+    image_id: int
+    u_photo: float      # BINGO photo-coordinate U
+    v_photo: float      # BINGO photo-coordinate V
+    u_pixel: float      # Converted pixel coordinate U
+    v_pixel: float      # Converted pixel coordinate V
+
+
+@dataclass
+class GCPCoordinate:
+    """GCP 3D coordinates in ECEF."""
+    gcp_id: int
+    x: float            # ECEF X (meters)
+    y: float            # ECEF Y (meters)
+    z: float            # ECEF Z (meters)
 
 class Config:
     """Configuration for SBET conversion."""
@@ -290,3 +310,33 @@ def parse_bingo_file(filepath):
                     current_points.append((tie_id, u, v))
                     
     return images_data
+
+def parse_gcp_file(filepath: str ,epsg=None)-> Dict[int, GCPCoordinate]:
+    """
+    Parse GCP ECEF coordinates file.
+    
+    Expected CSV columns: gcp_id, x, y, z
+    """
+    gcps = {}
+    
+    enu2ecefTransformer = pyproj.Transformer.from_crs(f"EPSG:{epsg}", "EPSG:4978", always_xy=True)
+
+
+    with open(filepath, 'r', newline='') as f:
+        reader = csv.DictReader(f,fieldnames=['gcp_id','x','y','z'])
+        for row in reader:
+            if epsg is not None:
+                x, y, z = enu2ecefTransformer.transform(float(row['x']), float(row['y']), float(row['z']))
+            else:
+                x = float(row['x'])
+                y = float(row['y'])
+                z = float(row['z'])
+            gcp_id = int(row['gcp_id'])
+            gcps[gcp_id] = GCPCoordinate(
+                gcp_id=gcp_id,
+                x=x,
+                y=y,
+                z=z,
+            )
+    
+    return gcps

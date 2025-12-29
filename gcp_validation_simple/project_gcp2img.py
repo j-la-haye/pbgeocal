@@ -57,8 +57,8 @@ def reproject_3d_to_image_rad(pt_ecef, sbet_pose, K):
     # Camera Y (down/back) = -Body X
     # Camera Z (optical axis) = Body Z
     R_body_to_cam = np.array([
-        [0,  1,  0],
-        [-1, 0,  0],
+        [0,  -1,  0],
+        [1, 0,  0],
         [0,  0,  1]
     ])
     v_camera = R_body_to_cam @ v_body
@@ -76,7 +76,7 @@ def reproject_3d_to_image_rad(pt_ecef, sbet_pose, K):
 
 import numpy as np
 from pyproj import Transformer
-from liblibor.rotations import R_ned2e,R_ned2b
+from liblibor.rotations import *
 
 def reproject_3d_to_image_full(pt_ecef, sbet_pose, K, lever_arm, boresight):
     """
@@ -90,6 +90,7 @@ def reproject_3d_to_image_full(pt_ecef, sbet_pose, K, lever_arm, boresight):
     # 1. IMU LLA to ECEF
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:4978", always_xy=True)
     lon, lat,alt = sbet_pose.lla[1], sbet_pose.lla[0], sbet_pose.lla[2]
+    roll,pitch,yaw = sbet_pose.rpy[0], sbet_pose.rpy[1], sbet_pose.rpy[2]
     imu_ecef = np.array(transformer.transform(np.degrees(lon), 
                                               np.degrees(lat), 
                                               alt))
@@ -107,22 +108,64 @@ def reproject_3d_to_image_full(pt_ecef, sbet_pose, K, lever_arm, boresight):
         [-slon,         clon,         0   ],
         [-clat * clon, -clat * slon, -slat]
     ])
+
+    
+
     v_ned = R_ecef_to_ned @ v_ecef.reshape(3,)
 
     # 4. NED to IMU Body Frame
-    cr, sr = np.cos(sbet_pose.rpy[0]), np.sin(sbet_pose.rpy[0])
-    cp, sp = np.cos(sbet_pose.rpy[1]), np.sin(sbet_pose.rpy[1])
-    cy, sy = np.cos(sbet_pose.rpy[2]), np.sin(sbet_pose.rpy[2])
+    cr, sr = np.cos(roll), np.sin(roll)
+    cp, sp = np.cos(pitch), np.sin(pitch)
+    cy, sy = np.cos(yaw), np.sin(yaw)
 
-    R_yaw = np.array([[cy, sy, 0], [-sy, cy, 0], [0, 0, 1]])
-    R_pitch = np.array([[cp, 0, -sp], [0, 1, 0], [sp, 0, cp]])
-    R_roll = np.array([[1, 0, 0], [0, cr, sr], [0, -sr, cr]])
+    R_yaw = np.array([[cy, sy, 0], 
+                      [-sy, cy, 0], 
+                      [0, 0, 1]])
+    R_pitch = np.array([[cp, 0, -sp], 
+                        [0, 1, 0], 
+                        [sp, 0, cp]])
+    R_roll = np.array([[1, 0, 0], 
+                       [0, cr, sr], 
+                       [0, -sr, cr]])
     R_ned_to_body = R_roll @ R_pitch @ R_yaw
+
+    def R1(r):
+        """
+        Rotation matrix around the x-axis, r in radians
+        """
+        return np.array([[1,    0,    0],
+                        [0, c(r), -s(r)],
+                        [0,s(r), c(r)]])
+
+    def R2(p):
+        """
+        Rotation matrix around the y-axis, p in radians
+        """
+        return np.array([[c(p), 0,s(p)],
+                        [   0, 1,    0],
+                        [-s(p), 0, c(p)]])
+
+    def R3(y):
+        """
+        Rotation matrix around the z-axis, y in radians
+        """
+        return np.array([[ c(y), -s(y), 0],
+                        [s(y), c(y), 0],
+                        [    0,    0, 1]])
+
+
+
+    Re2n = R_ned2e(lat,lon).T
+    Rn2b = R_ned2b(roll,pitch,yaw)
+    Rned2body=R3(yaw)@R2(pitch)@R1(roll)
+    Re2b =  Rn2b @ Re2n
+    R_b2e = Re2b.T
     
     #R_ned_to_body = R_ned2b(sbet_pose.rpy[0], sbet_pose.rpy[1], sbet_pose.rpy[2])
     
     # Point relative to IMU in Body Frame
     v_body_imu = R_ned_to_body @ v_ned
+    #v_body_imu = Rn2b @ v_ned
 
     # 5. Apply Lever-Arm
     # Vector from Camera to Point = (Vector from IMU to Point) - (Vector from IMU to Camera)
@@ -130,7 +173,7 @@ def reproject_3d_to_image_full(pt_ecef, sbet_pose, K, lever_arm, boresight):
 
     # 6. Apply Boresight and Mounting Rotation
     # Boresight (usually small corrections to the Body frame)
-    b_r, b_p, b_y = boresight
+    b_r, b_p, b_y = np.radians(boresight)
     cbr, sbr = np.cos(b_r), np.sin(b_r)
     cbp, sbp = np.cos(b_p), np.sin(b_p)
     cby, sby = np.cos(b_y), np.sin(b_y)
@@ -143,12 +186,19 @@ def reproject_3d_to_image_full(pt_ecef, sbet_pose, K, lever_arm, boresight):
     # Your specific Mounting: Cam_X=Body_Y, Cam_Y=-Body_X, Cam_Z=Body_Z
     R_mount = np.array([
         [0,  -1,  0],
-        [-1, 0,  0],
+        [1, 0,  0],
         [0,  0,  1]
     ])
     
+    # R_mount = np.array([
+    #     [1,  0,  0],
+    #     [0, 1,  0],
+    #     [0,  0,  1]
+    # ])
+    
     # Final Camera Frame vector
     v_camera = R_mount @ R_boresight @ v_body_cam
+
 
     # 7. Projection
     if v_camera[2] <= 0: return None

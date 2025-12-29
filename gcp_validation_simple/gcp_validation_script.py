@@ -458,7 +458,17 @@ def rotation_ned_to_body(roll: float, pitch: float, yaw: float,radians=True) -> 
          cos_theta * sin_phi,
          cos_theta * cos_phi]
     ])
+    R_yaw = np.array([[cos_psi, sin_psi, 0], 
+                      [-sin_psi, cos_psi, 0], 
+                      [0, 0, 1]])
+    R_pitch = np.array([[cos_theta, 0, -sin_theta], 
+                        [0, 1, 0], 
+                        [sin_theta, 0, cos_theta]])
+    R_roll = np.array([[1, 0, 0], 
+                       [0, cos_phi, sin_phi], 
+                       [0, -sin_phi, cos_phi]])
     
+    R = R_roll @ R_pitch @ R_yaw
     return R
 
 
@@ -478,7 +488,7 @@ def rotation_body_to_camera() -> np.ndarray:
         3x3 rotation matrix R such that v_camera = R @ v_body
     """
     R = np.array([
-        [0,  -1,  0],   # Camera X = Body Y
+        [0,  1,  0],   # Camera X = Body Y
         [-1, 0,  0],   # Camera Y = -Body X
         [0,  0,  1]    # Camera Z = Body Z
     ])
@@ -634,7 +644,7 @@ def transform_ecef_to_camera(
     
     # Step 3: Build full rotation chain ECEF → Camera
     # Boresight correction (small rotation applied before body-to-camera)
-    R_boresight = rotation_ned_to_body(boresight[0], boresight[1], boresight[2], degree=True)
+    R_boresight = rotation_ned_to_body(boresight[0], boresight[1], boresight[2], radians=False)
     
     # Body to camera (fixed rotation)
     R_cam_body = rotation_body_to_camera()
@@ -928,7 +938,7 @@ def run_validation(config_path: str, verbose: bool = True):
         obs_u_px = camera_model.K[0, 2] + valid_obs['u_bingo'].values
         obs_v_px = camera_model.K[1, 2] - valid_obs['v_bingo'].values
         obs_px = np.stack([obs_u_px, obs_v_px], axis=1)
-
+        print(f"Processing Image ID {img_id} with {valid_obs} valid GCP observations")
         # Localize in Grid Frame
         tie_ids = valid_obs['tiepoint_id'].astype(int).values
         gcp_ecef = np.array([[gcps[tid].x, gcps[tid].y, gcps[tid].z] for tid in tie_ids])
@@ -937,17 +947,21 @@ def run_validation(config_path: str, verbose: bool = True):
         points_camera = transform_ecef_to_camera(
             gcp_ecef, pose, lever_arm, boresight
         )
-        
+        print('camera pos', points_camera)
+        print(camera_model.K)
         # Project to image
-        proj_u, proj_v, valid_proj = project_to_image(point_camera, camera)
+        proj_u, proj_v, valid_proj = project_to_image(points_camera, camera)
 
+        print(f"Projected points (u,v): {list(zip(proj_u, proj_v))}")
         u_rpj,v_rpj = project_gcp2img.reproject_3d_to_image_full(gcp_ecef,pose,camera_model.K, lever_arm, boresight)
         
+        print(f"Reprojected points proj_gcp2img (u,v): {list((u_rpj, v_rpj))}")
+
         # Process each GCP observation
         for i, (tid, is_valid) in enumerate(zip(tie_ids, valid_proj)):
             if not is_valid:
                 print(f"    WARNING: Invalid projection for GCP {tid} in image {img_id} "
-                      f"(point behind camera, Z={point_camera[i, 2]:.1f})")
+                      f"(point behind camera, Z={points_camera[i, 2]:.1f})")
                 continue
             
             # Get corresponding observation
@@ -967,8 +981,8 @@ def run_validation(config_path: str, verbose: bool = True):
                 'residual_u': proj_u[i] - obs_u_px[i],
                 'residual_v': proj_v[i] - obs_v_px[i],
                 'error': error,
-                'distance_m': np.linalg.norm(point_camera[i]),
-                'point_camera': point_camera[i].copy(),
+                'distance_m': np.linalg.norm(points_camera[i]),
+                'point_camera': points_camera[i].copy(),
             })
     
     print(f"    Processed {len(results)} valid reprojections")
