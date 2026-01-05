@@ -374,8 +374,6 @@ def main(config_path="config.yaml"):
     img_poses = trajectory.interpolate(img_times, cfg)
 
    
-    #sbet_data = parse_sbet(cfg['paths']['sbet_file'], cfg['sbet_format'])
-    
     print(f"Loading BINGO from {cfg['paths']['bingo_file']}...")
     bingo_data = parse_bingo_inverted(cfg['paths']['bingo_file'])
 
@@ -481,4 +479,4 @@ def main(config_path="config.yaml"):
     except KeyError:
         print("Output path not defined in config.")
 if __name__ == "__main__":
-    main("raytrace2D_3D/config.yaml")
+    main("raytrace2D_3D/config_addlidar.yaml")

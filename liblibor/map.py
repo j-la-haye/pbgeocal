@@ -26,7 +26,7 @@ class TangentPlane:
         self.lon = np.radians(lon)
         self.alt = alt
 
-        self.xyz0 = np.array(lla2ecefTransformer.transform(self.lat,self.lon,self.alt, radians=True)).reshape(1,3)
+        self.xyz0 = np.array(lla2ecefTransformer.transform(self.lon,self.lat,self.alt, radians=True)).reshape(1,3)
 
         self.R_ecef2enu = T_enu_ned() @ R_ned2e(self.lat, self.lon).T
         #print("R_ecef2enu:", self.R_ecef2enu)
@@ -44,7 +44,7 @@ class Trajectory:
         self.t = t
         self.lla = lla.T
         self.rpy = rpy.T
-        self.ecef = np.dstack(lla2ecefTransformer.transform(lla[:, 0], lla[:, 1], lla[:, 2],radians=radians))[0]
+        self.ecef = np.dstack(lla2ecefTransformer.transform(lla[:, 1], lla[:, 0], lla[:, 2],radians=radians))[0]
         self.xyz = tp.R_ecef2enu @ (self.ecef - tp.xyz0).T
         self.R_ned2body = np.empty((rpy.shape[0],3,3))
         self.R_ned2ecef = np.empty((lla.shape[0],3,3))
@@ -71,9 +71,14 @@ class Trajectory:
 
         xyz_interp = np.empty((len(timestamps), 3))
         lla_interp = np.empty((len(timestamps), 3))
+        #ecef_interp = np.empty((len(timestamps), 3))
         for i in range(3):
             xyz_interp[:,i] = np.interp(timestamps, self.t, self.xyz[i,:])
             lla_interp[:,i] = np.interp(timestamps, self.t, self.lla[i,:])
+        
+        x,y,z = lla2ecefTransformer.transform(
+                lla_interp[:,1], lla_interp[:,0], lla_interp[:,2],radians=True)
+        ecef_interp = np.array([x,y,z]).T
         
         E, N, H = transformer.transform(lla_interp[:,0], lla_interp[:,1], lla_interp[:,2],radians=True)
         ENH_interp = np.array([E,N,H]) 
@@ -91,7 +96,7 @@ class Trajectory:
 
         poses = []
         for i in range(len(timestamps)):
-            poses.append(Pose_std(timestamps[i], lla_interp[i,:], xyz_interp[i,:],rpy_interp[i,:],self.R_ned2ecef[i], self.R_ned2body[i],self.ecef[i,:], ENH_interp[:,i]))
+            poses.append(Pose_std(timestamps[i], lla_interp[i,:], xyz_interp[i,:],rpy_interp[i,:],self.R_ned2ecef[i], self.R_ned2body[i],ecef_interp[i,:], ENH_interp[:,i]))
 
         return poses
     

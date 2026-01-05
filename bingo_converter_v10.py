@@ -153,20 +153,20 @@ def process_tie_points(root_directory, checkpoint_file=None, target_epsg=2056,
         
         # Find UVT files (tie point files) and timing files
         uvt_files = [f for f in subdir.glob('*.csv') if not any(pattern in f.name.lower() for pattern in ['timing', 'time'])]
-        timing_files = list(subdir.glob(timing_file_pattern))
+        # timing_files = list(subdir.glob(timing_file_pattern))
         
-        if not timing_files:
-            # Try alternative patterns
-            timing_files = [f for f in subdir.glob('*.csv') if 'timing' in f.name.lower() or 'time' in f.name.lower()]
+        # if not timing_files:
+        #     # Try alternative patterns
+        #     timing_files = [f for f in subdir.glob('*.csv') if 'timing' in f.name.lower() or 'time' in f.name.lower()]
         
-        if not timing_files:
-            print(f"  Warning: No timing file found in {subdir.name}, using UVT times directly")
-            timing_data = []
-        else:
-            timing_file = timing_files[0]
-            print(f"  Found timing file: {timing_file.name}")
-            timing_data = read_timing_file(timing_file)
-            print(f"  Loaded {len(timing_data)} timestamps")
+        # if not timing_files:
+        #     print(f"  Warning: No timing file found in {subdir.name}, using UVT times directly")
+        #     timing_data = []
+        # else:
+        #     timing_file = timing_files[0]
+        #     print(f"  Found timing file: {timing_file.name}")
+        #     timing_data = read_timing_file(timing_file)
+        #     print(f"  Loaded {len(timing_data)} timestamps")
         
         # Process each UVT file in this subdirectory
         for uvt_file in uvt_files:
@@ -192,15 +192,15 @@ def process_tie_points(root_directory, checkpoint_file=None, target_epsg=2056,
                             v_coord = float(row[3])
                             
                             # Find closest time in timing file
-                            if timing_data:
-                                precise_time = find_closest_time(uvt_time, timing_data,time_scale)
-                            else:
-                                precise_time = uvt_time
+                            #if timing_data:
+                            #    precise_time = find_closest_time(uvt_time, timing_data,time_scale)
+                            #else:
+                            #precise_time = uvt_time
                             
                             # Store the data organized by landmark name
                             landmarks[landmark_name].append({
                                 'filename': filename,
-                                'time': precise_time,
+                                'time': uvt_time,
                                 'u': u_coord,
                                 'v': v_coord
                             })
