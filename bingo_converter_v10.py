@@ -206,7 +206,7 @@ def process_tie_points(root_directory, checkpoint_file=None, target_epsg=2056,
                             })
                             point_count += 1
                     
-                    print(f"    Processed {point_count} tie points")
+                    print(f"Processed {point_count} tie points")
                     
             except Exception as e:
                 print(f"  Error processing {uvt_file}: {e}")
