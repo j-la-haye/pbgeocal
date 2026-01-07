@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 from typing import List, Tuple, Dict, Optional
 from photogrammetry_verify.io_utils import load_timing_file, parse_gcp_file,parse_bingo_file
-from liblibor.map import TangentPlane, Trajectory,log, loadSBET
+from liblibor.map import TangentPlane, Trajectory,Pose_std,log, loadSBET
 from pathlib import Path
 
 # ==========================================
@@ -351,29 +351,61 @@ def main(config_path="config.yaml"):
     t_start, t_end = img_time_span
     print(f"Trajectory time range: {t_start:.3f} to {t_end:.3f}")
     
-    log("[2/3] Loading SBET data...", verbose=True, force=True)
-    # Extract time, lla, rpy from sbet_df
-    #print(f"Loading SBET from {cfg['paths']['sbet_file']}...")
-    t,lla,rpy = loadSBET(Path(cfg['paths']['sbet_file']))
     
-    mask = (t >= img_time_span[0]) & (t <= img_time_span[1])
-    #tspan = t[mask]
-    img_lla = lla[mask,:]
-    #rpy = rpy[mask,:]
-    lat0 = np.degrees(img_lla[0,0])
-    lon0 = np.degrees(img_lla[0,1])
-    alt0 = img_lla[0,2]
-    print(f"Reference LTP origin: lat: {lat0:.6f} lon: {lon0:.6f} alt: {alt0:.3f}")
-    tangentPlane = TangentPlane(lat0, lon0,alt0)
     
-    trajectory = Trajectory(t, lla, rpy, tangentPlane, img_time_span)
-    print(f"    Loaded {len(trajectory.t)} trajectory epochs")
-    log("[3/3] Interpolating poses...", verbose=True, force=True)
-    # Create coordinate transformer
-    
-    img_poses = trajectory.interpolate(img_times, cfg)
+    if cfg['project'].get('parse_sbet', True):
+        log("[2/3] Loading SBET data...", verbose=True, force=True)
+        # Extract time, lla, rpy from sbet_df
+        #print(f"Loading SBET from {cfg['paths']['sbet_file']}...")
+        t,lla,rpy = loadSBET(Path(cfg['paths']['sbet_file']))
+        mask = (t >= img_time_span[0]) & (t <= img_time_span[1])
+        #tspan = t[mask]
+        img_lla = lla[mask,:]
+        #rpy = rpy[mask,:]
+        lat0 = np.degrees(img_lla[0,0])
+        lon0 = np.degrees(img_lla[0,1])
+        alt0 = img_lla[0,2]
+        print(f"Reference LTP origin: lat: {lat0:.6f} lon: {lon0:.6f} alt: {alt0:.3f}")
+        tangentPlane = TangentPlane(lat0, lon0,alt0)
+        
+        trajectory = Trajectory(t, lla, rpy, tangentPlane, img_time_span)
+        print(f"    Loaded {len(trajectory.t)} trajectory epochs")
+        log("[3/3] Interpolating poses...", verbose=True, force=True)
+        # Create coordinate transformer
+        
+        img_poses = trajectory.interpolate(img_times, cfg)
+        # write poses to csv for debugging
+        with open(cfg['paths']['poses_file'], "w") as f:
+            f.write("time,lat,lon,alt,roll,pitch,yaw\n")
+            for pose in img_poses:
+                f.write(f"{pose.t},{pose.lla[0]},{pose.lla[1]},{pose.lla[2]},{pose.rpy[0]},{pose.rpy[1]},{pose.rpy[2]}\n")
+        print(f"    Interpolated {len(img_poses)} image poses")
+    else:
+        # Load poses from defined csv path
+        poses_csv = np.loadtxt(cfg['paths']['poses_file'], delimiter=',',skiprows=1)
+        t,lla,rpy = poses_csv[:,0], poses_csv[:,1:4], poses_csv[:,4:7]
+        mask = (t >= img_time_span[0]) & (t <= img_time_span[1])
+        img_lla = lla[mask,:]
+        lat0 = np.degrees(img_lla[0,0])
+        lon0 = np.degrees(img_lla[0,1])
+        alt0 = img_lla[0,2]
+        print(f"Reference LTP origin: lat: {lat0:.6f} lon: {lon0:.6f} alt: {alt0:.3f}")
+        tangentPlane = TangentPlane(lat0, lon0,alt0)
+        poses = Trajectory(t, lla, rpy, tangentPlane, img_time_span)
+        transformer = Transformer.from_crs(
+            4326,
+            cfg['project']['epsg'],
+        always_xy=False  # Ensures lon, lat order
+        )
+        # Step 7: Convert camera position to projected coordinates
+        # Use the actual trajectory length, not img_times length
+        n_poses = poses.lla.shape[1]  # Number of poses in the trajectory
+        E, N, H = transformer.transform(poses.lla[0,:], poses.lla[1,:], poses.lla[2,:],radians=True)
+        ENH = np.array([E,N,H])
+        img_poses = []
+        for i in range(n_poses):
+            img_poses.append(Pose_std(poses.t[i], poses.lla[:,i], poses.xyz[:,i], poses.rpy[:,i], poses.R_ned2ecef[i], poses.R_ned2body[i], poses.ecef[i,:], ENH[:,i]))
 
-   
     print(f"Loading BINGO from {cfg['paths']['bingo_file']}...")
     bingo_data = parse_bingo_inverted(cfg['paths']['bingo_file'])
 
@@ -414,10 +446,10 @@ def main(config_path="config.yaml"):
                 print(f"Warning: Time {t} out of SBET bounds.")
                 continue
 
-            C, r = projector.get_ray_in_ecef((u, v), pose)
+            C, r = projector.get_ray_in_ecef((u, -v), pose)
             centers.append(C)
             rays.append(r)
-            valid_obs.append({'u': u, 'v': v, 'pose': pose})
+            valid_obs.append({'u': u, 'v': -v, 'pose': pose})
         
         if len(centers) < 2:
             print(f"Skipping GCP {gcp_id}: Not enough views ({len(centers)})")
@@ -434,7 +466,7 @@ def main(config_path="config.yaml"):
             if proj_uv:
                 px_errors.append(np.linalg.norm(np.array([vo['u'], vo['v']]) - np.array(proj_uv)))
         rmse_px = np.sqrt(np.mean(np.array(px_errors)**2)) if px_errors else 0.0
-
+        print(f"GCP {gcp_id}: Triangulated with {len(valid_obs)} views, RMSE: {rmse_px:.2f} px")
         # 4. Calculate 3D Error against Ground Truth (if exists)
         error_3d_m = -1.0 
         dx, dy, dz = 0.0, 0.0, 0.0
