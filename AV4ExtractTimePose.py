@@ -9,7 +9,7 @@ import argparse
 from bisect import bisect_left
 from pathlib import Path
 from Sbet import Sbet
-from AV4EstimateTimes import load_frame_times
+#from AV4EstimateTimes import load_frame_times
 import struct
 import re
 import matplotlib.pyplot as plt
@@ -176,8 +176,9 @@ def AV4_parse_line_times(cpp_file, input_file=None):
     # Extract the filename without extension
     filename = os.path.splitext(cpp_file)[0]
     
-    # Compile the C++ file
-    compile_command = f"clang++ -std=c++17 {cpp_file} -o {filename}"
+    # Compile the C++ file - use g++ if clang++ is not available
+    compiler = "clang++" if subprocess.run("which clang++", shell=True, capture_output=True).returncode == 0 else "g++"
+    compile_command = f"{compiler} -std=c++17 {cpp_file} -o {filename}"
     compile_process = subprocess.run(compile_command, shell=True, capture_output=True, text=True)
     
     if compile_process.returncode != 0:
@@ -541,10 +542,10 @@ if __name__ == '__main__':
     parser.add_argument('--config', type=str, help='Path to the configuration file')
 
     # Parse the config file argument
-    args = parser.parse_args()
+    #args = parser.parse_args()
 
     # Call the main function with the specified config file
-    main('config/av4-extract-time-pose.ini') if not args.config else main(args.config)
+    main('configs/av4-extract_times_Colombier.ini') #if not args.config else main(args.config)
    
     
      
