@@ -257,7 +257,7 @@ def load_timing_file(csv_path):
     Expects CSV with columns: id, time
     Returns a dictionary mapping img_id -> timestamp
     """
-    df = pd.read_csv(csv_path, names=['id', 'time'], dtype={'id': str})
+    df = pd.read_csv(csv_path, names=['id', 'time'], dtype={'id': str},delimiter=' ')
     return pd.Series(df.time.values, index=df.id).to_dict()
 
 def parse_bingo_file(filepath):

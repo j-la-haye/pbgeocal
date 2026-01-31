@@ -124,7 +124,7 @@ class CameraProjector:
         v_body = R_ned_to_body @ (R_ecef_to_ned @ v_ecef)
         
         # Apply Lever Arm & Mount
-        v_camera = self.R_body_to_cam @ (v_body - self.lever_arm)
+        v_camera = self.R_body_to_cam @ (v_body + self.lever_arm)
         
         if v_camera[2] <= 0: return None
         
@@ -446,10 +446,10 @@ def main(config_path="config.yaml"):
                 print(f"Warning: Time {t} out of SBET bounds.")
                 continue
 
-            C, r = projector.get_ray_in_ecef((u, -v), pose)
+            C, r = projector.get_ray_in_ecef((u, v), pose)
             centers.append(C)
             rays.append(r)
-            valid_obs.append({'u': u, 'v': -v, 'pose': pose})
+            valid_obs.append({'u': u, 'v': v, 'pose': pose})
         
         if len(centers) < 2:
             print(f"Skipping GCP {gcp_id}: Not enough views ({len(centers)})")
@@ -465,7 +465,10 @@ def main(config_path="config.yaml"):
             proj_uv = projector.project(est_ecef, vo['pose'])
             if proj_uv:
                 px_errors.append(np.linalg.norm(np.array([vo['u'], vo['v']]) - np.array(proj_uv)))
+            print(f"\nGCP {gcp_id} reprojection errors (u,proj_u, v,proj_v):", vo['u'], proj_uv[0], vo['v'], proj_uv[1])
         rmse_px = np.sqrt(np.mean(np.array(px_errors)**2)) if px_errors else 0.0
+        #print vo vs proj_uv for debugging
+        
         print(f"GCP {gcp_id}: Triangulated with {len(valid_obs)} views, RMSE: {rmse_px:.2f} px")
         # 4. Calculate 3D Error against Ground Truth (if exists)
         error_3d_m = -1.0 

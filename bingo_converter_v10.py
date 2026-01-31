@@ -250,7 +250,11 @@ def process_tie_points(root_directory, checkpoint_file=None, target_epsg=2056,
                 x_local, y_local, z_local = ecef_to_local(x_ecef, y_ecef, z_ecef, target_epsg)
                 
                 # Write to GCP file
-                gcp_file.write(f"{landmark_id}, {x_local:.1f}, {y_local:.1f}, {z_local:.1f}\n")
+                # check if epsg = 4326 and write lat lon alt as y_local, x_local, z_local
+                if target_epsg == 4326:
+                    gcp_file.write(f"{landmark_id}, {y_local:.14f}, {x_local:.14f}, {z_local:.3f}\n")
+                else:
+                    gcp_file.write(f"{landmark_id}, {x_local:.1f}, {y_local:.1f}, {z_local:.1f}\n")
         
         print(f"GCP file written to: {output_gcp}")
         print(f"  - {len(gcp_landmarks)} GCPs converted from ECEF to EPSG:{target_epsg}")
@@ -322,10 +326,10 @@ if __name__ == "__main__":
     #   └── ...
     
     #root_dir = "."  # Current directory, change this to your data directory
-    root_dir = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/optimized"
+    root_dir = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/raw"
     checkpoint_file = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/LandMark_GCP_DSM_ECEF_test.csv"  # Path to checkpoint file with ECEF coordinates
     
-    output_bingo = Path(root_dir) / 'bingo_optimized.txt'
+    output_bingo = Path(root_dir) / 'bingo.txt'
     output_timing = Path(root_dir) / 'image_timestamps.txt'
     gcp_file = Path(root_dir) / 'GCP.txt'
 
@@ -335,7 +339,7 @@ if __name__ == "__main__":
     process_tie_points(
         root_directory=root_dir,
         checkpoint_file=checkpoint_file,
-        target_epsg=2056,  # Swiss LV95, change to your target EPSG code
+        target_epsg=4326,  # Swiss LV95 -2056 default
         output_bingo=output_bingo,
         output_timing=output_timing,
         output_gcp=gcp_file,

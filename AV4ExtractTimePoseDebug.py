@@ -484,13 +484,13 @@ def main(config_file):
 if __name__ == '__main__':
     # Set up the argument parser for the config file
     parser = argparse.ArgumentParser(description='Specify the config file.')
-    parser.add_argument('--config', type=str, help='Path to the configuration file')
+    #parser.add_argument('--config', type=str, required=False, help='Path to the configuration file')
 
     # Parse the config file argument
-    args = parser.parse_args()
+    #args = parser.parse_args()
 
     # Call the main function with the specified config file
-    main('config/av4-extract-time-pose_Thun_20250427.ini') if not args.config else main(args.config)
+    main('configs/av4-extract_times_Colombier.ini') #if not args.config else main(args.config)
    
     
      

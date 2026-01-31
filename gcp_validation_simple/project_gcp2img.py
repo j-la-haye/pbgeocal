@@ -183,7 +183,7 @@ def reproject_3d_to_image_full(pt_ecef, sbet_pose, K, lever_arm, boresight):
     R_bore_roll = np.array([[1, 0, 0], [0, cbr, sbr], [0, -sbr, cbr]])
     R_boresight = R_bore_roll @ R_bore_pitch @ R_bore_yaw
 
-    # Your specific Mounting: Cam_X=Body_Y, Cam_Y=-Body_X, Cam_Z=Body_Z
+    # Mounting: Cam_X=Body_Y, Cam_Y=-Body_X, Cam_Z=Body_Z
     R_mount = np.array([
         [0,  -1,  0],
         [1, 0,  0],
