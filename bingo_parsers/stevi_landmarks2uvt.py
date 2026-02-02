@@ -32,10 +32,24 @@ def load_timestamps(file_path):
     with open(file_path, "r") as f:
         return [line.strip() for line in f if line.strip()]
 
-def process_image(image_cfg, root_dir=None):
+def process_image(line_dir):
+
+    for _, _, files in os.walk(line_dir):
+        for file in files:
+            if file.endswith(".csv"):
+                tie_file = os.path.join(line_dir, file)
+            if file.endswith(".timing"):
+                time_file = os.path.join(line_dir, file)
+    
+    image_cfg = {
+        "name": os.path.splitext(tie_file.split('/')[-1])[0],
+        "tiepoint_file": tie_file,
+        "timing_file": time_file
+    }
+            
     name = image_cfg["name"]
-    tie_file = resolve_path(root_dir, image_cfg["tiepoint_file"])
-    time_file = resolve_path(root_dir, image_cfg["timing_file"])
+    tie_file = resolve_path(line_dir, image_cfg["tiepoint_file"])
+    time_file = resolve_path(line_dir, image_cfg["timing_file"])
 
     if not os.path.isfile(tie_file):
         print(f"❌ Tie-point file not found for {name}: {tie_file}")
@@ -43,17 +57,20 @@ def process_image(image_cfg, root_dir=None):
     if not os.path.isfile(time_file):
         print(f"❌ Timing file not found for {name}: {time_file}")
         return
-
+   
     timestamps = load_timestamps(time_file)
 
     base_name = os.path.basename(tie_file)
-    out_path = os.path.join(os.path.dirname(tie_file), f"stevi_uvt_{base_name}")
+    # write output uvt one directory up in UVT folder
+    two_dirs_up = os.path.dirname(os.path.dirname(os.path.dirname(tie_file)))
+    out_path = os.path.join(two_dirs_up,  "UVT", name.split('_')[0], f"stevi_uvt_{base_name}")
 
     print(f"➡️  Processing image '{name}'")
     print(f"    tie-points: {tie_file}")
     print(f"    timings:    {time_file}")
     print(f"    output:     {out_path}")
 
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(tie_file, "r", newline="") as fin, open(out_path, "w") as fout:
         reader = csv.reader(fin)
 
@@ -94,14 +111,12 @@ def process_image(image_cfg, root_dir=None):
                 )
                 continue
 
-            t = timestamps[v_idx]
+            t = float(timestamps[v_idx])*1e-5  # Convert 10 microseconds to seconds
 
-            # Output format: UVT <image_name> U V T
-            fout.write(f"{marker_name}, {u_str}, {v_str}, {t}\n")
+            # Output format: UVT <image_name> T U V , writ t with 6 decimal places
+            fout.write(f"{marker_name}, {t:.6f},{u_str}, {v_str}\n")
 
     print(f"✅ Created: {out_path}\n")
-
-
 
 def main(config_path=None):
     if config_path is None:
@@ -115,16 +130,17 @@ def main(config_path=None):
     cfg = load_yaml_config(yaml_file)
 
     root_dir = cfg.get("root_dir", None)
-    images = cfg.get("images", [])
+    #images = cfg.get("images", [])
 
-    if not images:
-        print("❌ No images defined in YAML under 'images'.")
-        sys.exit(1)
+    #if not images:
+    #    print("❌ No images defined in YAML under 'images'.")
+    #    sys.exit(1)
 
-    for img_cfg in images:
-        process_image(img_cfg, root_dir=root_dir)
-
-    print("🎯 All images processed.")
+    # Walk through root directory and sub-directories
+    for root, dirs, files in os.walk(root_dir):
+        for dir in dirs:
+            line_dir= os.path.join(root, dir)    
+            process_image(line_dir)
 
 if __name__ == "__main__":
     main(config_path="configs/stevmatch2uvt.yaml")

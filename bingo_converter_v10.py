@@ -202,7 +202,7 @@ def process_tie_points(root_directory, checkpoint_file=None, target_epsg=2056,
                                 'filename': filename,
                                 'time': uvt_time,
                                 'u': u_coord,
-                                'v': v_coord
+                                'v': 0 #v_coord
                             })
                             point_count += 1
                     
@@ -326,7 +326,7 @@ if __name__ == "__main__":
     #   └── ...
     
     #root_dir = "."  # Current directory, change this to your data directory
-    root_dir = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/raw"
+    root_dir = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/raw/unrectified/UVT"
     checkpoint_file = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/LandMark_GCP_DSM_ECEF_test.csv"  # Path to checkpoint file with ECEF coordinates
     
     output_bingo = Path(root_dir) / 'bingo.txt'

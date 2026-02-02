@@ -39,16 +39,15 @@
 # -----------------------------------------------------------------------------
 
 # Root directory containing match text files
-root_dir: "/Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/LandMarks/Stevi_TPs/L3"
+root_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/rgb_matches/raw_matches_export/raw_matches/l4_5"
 
 # Image pair configuration
 image_pair:
   image1_name: line_4
   image2_name: line_5
-  image1_timing: /Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l4_rgb/bil_data
-  image2_timing: /Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data
+  image1_timing: /media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l4_rgb/bil_data
+  image2_timing: /media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data
   time_scale: 1e-5
-
 templates:
   - type1: "UVT"
     object1: {image1_name}
