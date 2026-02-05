@@ -52,7 +52,12 @@ source venv/bin/activate  # Linux/Mac
 pip install -r requirements.txt
 
 # (Optional) Download PROJ grid files for better pyproj accuracy
-projsync --source-id ch_swisstopo
+# Note: projsync may be broken, use manual download instead:
+mkdir -p ~/.local/share/proj
+cd ~/.local/share/proj
+wget https://cdn.proj.org/ch_swisstopo_CHENyx06_ETRS.tif
+wget https://cdn.proj.org/ch_swisstopo_CHENyx06a.tif
+wget https://cdn.proj.org/ch_swisstopo_chgeo2004_ETRS89_LN02.tif
 ```
 
 ## Usage
@@ -165,9 +170,15 @@ lon, lat, h_ellip = client.transform_points_lv95_to_wgs84(e, n, h)
 - LV95 Northing: 1,074,000 - 1,296,000
 
 ### Large pyproj differences
-Install PROJ grids:
+projsync --source-id ch_swisstopo
+
+Install PROJ grids manually (projsync may be broken):
 ```bash
-projsync --source-id ch_swisstopo --target-dir ~/.local/share/proj
+mkdir -p ~/.local/share/proj
+cd ~/.local/share/proj
+wget https://cdn.proj.org/ch_swisstopo_CHENyx06_ETRS.tif
+wget https://cdn.proj.org/ch_swisstopo_CHENyx06a.tif
+wget https://cdn.proj.org/ch_swisstopo_chgeo2004_ETRS89_LN02.tif
 ```
 
 ### API rate limiting

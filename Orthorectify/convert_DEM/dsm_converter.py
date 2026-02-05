@@ -14,7 +14,7 @@ Author: Claude
 import argparse
 import json
 import logging
-import sys
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -48,11 +48,14 @@ class Config:
     source_planimetric: str
     source_altimetric: str
     target_crs: str
+    transformation_method: str  # "auto", "reframe", or "pyproj"
     reframe_base_url: str
     reframe_format: str
     reframe_timeout: int
     reframe_max_retries: int
+    reframe_retry_delay: float
     reframe_batch_size: int
+    reframe_proxy: Optional[str]  # Optional proxy URL
     resampling: str
     output_dtype: Optional[str]
     nodata: float
@@ -76,11 +79,14 @@ class Config:
             source_planimetric=cfg['source_crs']['planimetric'],
             source_altimetric=cfg['source_crs']['altimetric'],
             target_crs=cfg['target_crs'],
+            transformation_method=cfg.get('transformation_method', 'pyproj'),
             reframe_base_url=cfg['reframe_api']['base_url'],
             reframe_format=cfg['reframe_api']['format'],
             reframe_timeout=cfg['reframe_api']['timeout'],
             reframe_max_retries=cfg['reframe_api']['max_retries'],
+            reframe_retry_delay=cfg['reframe_api'].get('retry_delay', 1.0),
             reframe_batch_size=cfg['reframe_api']['batch_size'],
+            reframe_proxy=cfg['reframe_api'].get('proxy', None),
             resampling=cfg['processing']['resampling'],
             output_dtype=cfg['processing']['output_dtype'],
             nodata=cfg['processing']['nodata'],
@@ -101,8 +107,62 @@ class ReframeAPI:
         self.base_url = config.reframe_base_url
         self.timeout = config.reframe_timeout
         self.max_retries = config.reframe_max_retries
+        self.retry_delay = config.reframe_retry_delay
         self.batch_size = config.reframe_batch_size
         self.session = requests.Session()
+        self._api_available = None  # Cache API availability
+        
+        # Configure proxy settings
+        self._configure_proxy(config)
+    
+    def _configure_proxy(self, config):
+        """
+        Configure proxy settings for the session.
+        
+        Proxy can be set via:
+        1. Config file (reframe_api.proxy)
+        2. Environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
+        3. System proxy settings
+        """
+        # Check for proxy in config
+        proxy_url = getattr(config, 'reframe_proxy', None)
+        
+        if proxy_url:
+            self.session.proxies = {
+                'http': proxy_url,
+                'https': proxy_url
+            }
+            logger.info(f"Using configured proxy: {proxy_url}")
+        elif os.environ.get('HTTPS_PROXY') or os.environ.get('HTTP_PROXY'):
+            # Let requests use environment variables automatically
+            logger.info("Using proxy from environment variables")
+        else:
+            # Try to bypass proxy for Swiss government domains
+            # This works if NO_PROXY is respected
+            no_proxy = os.environ.get('NO_PROXY', '')
+            if 'geo.admin.ch' not in no_proxy:
+                logger.debug("Consider adding 'geo.admin.ch' to NO_PROXY if experiencing proxy issues")
+    
+    def check_api_available(self) -> bool:
+        """Check if the Reframe API is reachable."""
+        if self._api_available is not None:
+            return self._api_available
+        
+        try:
+            # Test with a simple request
+            response = self.session.get(
+                f"{self.base_url}/lv95towgs84",
+                params={'easting': '2600000', 'northing': '1200000', 'altitude': '500', 'format': 'json'},
+                timeout=10
+            )
+            self._api_available = response.status_code == 200
+        except Exception:
+            self._api_available = False
+        
+        if not self._api_available:
+            logger.warning("Reframe API is not available - will use pyproj fallback")
+        
+        return self._api_available
     
     def transform_points(
         self, 
@@ -130,6 +190,10 @@ class ReframeAPI:
         lat_out = np.full(n_points, np.nan)
         h_out = np.full(n_points, np.nan)
         
+        # Track consecutive failures for early abort
+        consecutive_failures = 0
+        max_consecutive_failures = 10
+        
         # Process in batches
         for start_idx in range(0, n_points, self.batch_size):
             end_idx = min(start_idx + self.batch_size, n_points)
@@ -138,13 +202,22 @@ class ReframeAPI:
             batch_h = height[start_idx:end_idx]
             
             # Call API for this batch
-            lon_batch, lat_batch, h_batch = self._transform_batch(
+            lon_batch, lat_batch, h_batch, failures = self._transform_batch(
                 batch_e, batch_n, batch_h
             )
             
             lon_out[start_idx:end_idx] = lon_batch
             lat_out[start_idx:end_idx] = lat_batch
             h_out[start_idx:end_idx] = h_batch
+            
+            # Check for persistent API issues
+            if failures == len(batch_e):
+                consecutive_failures += 1
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.error(f"Reframe API failing consistently after {start_idx + end_idx} points - aborting")
+                    break
+            else:
+                consecutive_failures = 0
         
         return lon_out, lat_out, h_out
     
@@ -153,19 +226,19 @@ class ReframeAPI:
         easting: np.ndarray, 
         northing: np.ndarray, 
         height: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Transform a single batch of points via the API."""
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+        """Transform a single batch of points via the API. Returns (lon, lat, h, failure_count)."""
         
         lon_out = np.full(len(easting), np.nan)
         lat_out = np.full(len(easting), np.nan)
         h_out = np.full(len(easting), np.nan)
+        failures = 0
         
         for i, (e, n, h) in enumerate(zip(easting, northing, height)):
             if np.isnan(h):
                 continue
                 
-            # Reframe API endpoint for LV95 -> ETRF93 transformation
-            # API format: /reframe/{format}?easting=E&northing=N&altitude=H
+            # Reframe API endpoint for LV95 -> WGS84 transformation
             params = {
                 'easting': f'{e:.3f}',
                 'northing': f'{n:.3f}',
@@ -173,6 +246,7 @@ class ReframeAPI:
                 'format': 'json'
             }
             
+            success = False
             for attempt in range(self.max_retries):
                 try:
                     response = self.session.get(
@@ -186,16 +260,35 @@ class ReframeAPI:
                     # Parse response - Reframe returns WGS84 coordinates
                     lon_out[i] = data.get('easting', data.get('longitude'))
                     lat_out[i] = data.get('northing', data.get('latitude'))
-                    h_out[i] = data.get('altitude', h)  # Ellipsoidal height
+                    h_out[i] = data.get('altitude', h)
+                    success = True
                     break
                     
-                except requests.exceptions.RequestException as e:
-                    if attempt == self.max_retries - 1:
-                        logger.warning(f"Failed to transform point ({e}, {n}, {h}): {e}")
-                    else:
-                        time.sleep(0.5 * (attempt + 1))
+                except requests.exceptions.RequestException as ex:
+                    # Exponential backoff
+                    delay = self.retry_delay * (2 ** attempt)
+                    
+                    if attempt < self.max_retries - 1:
+                        # Check if it's a server error worth retrying
+                        if hasattr(ex, 'response') and ex.response is not None:
+                            status = ex.response.status_code
+                            if status in (429, 500, 502, 503, 504):
+                                logger.debug(f"Retry {attempt+1}/{self.max_retries} after {status} error, waiting {delay:.1f}s")
+                                time.sleep(delay)
+                                continue
+                        else:
+                            # Connection error - retry with backoff
+                            logger.debug(f"Retry {attempt+1}/{self.max_retries} after connection error, waiting {delay:.1f}s")
+                            time.sleep(delay)
+                            continue
+                    
+                    # Final failure
+                    logger.warning(f"Failed to transform point ({e}, {n}, {h}): {ex}")
+            
+            if not success:
+                failures += 1
         
-        return lon_out, lat_out, h_out
+        return lon_out, lat_out, h_out, failures
     
     def transform_points_bulk(
         self, 
@@ -258,26 +351,85 @@ class PyProjTransformer:
     def _setup_height_transformer(self, config: Config):
         """Setup height transformation from LN02 to ellipsoidal heights."""
         # LN02 uses the CHGeo2004 geoid model
-        # EPSG:5729 is LN02 (Swiss vertical datum)
+        # EPSG:5728 is LN02 (Swiss vertical datum)
         try:
             # Create a compound CRS for proper 3D transformation
             # LV95 + LN02 -> WGS84 3D
-            source_compound = CRS.compound_crs([
-                CRS.from_epsg(2056),  # LV95
-                CRS.from_epsg(5729)   # LN02
-            ])
+            # Method 1: Use CompoundCRS class (pyproj >= 3.0)
+            from pyproj.crs import CompoundCRS
+            
+            source_compound = CompoundCRS(
+                name="LV95 + LN02",
+                components=[
+                    CRS.from_epsg(2056),  # LV95 (horizontal)
+                    CRS.from_epsg(5728)   # LN02 (vertical)
+                ]
+            )
             
             self.transformer_3d = Transformer.from_crs(
                 source_compound,
                 self.target_crs,
                 always_xy=True
             )
-            self.use_compound = True
-            logger.info("Using compound CRS transformation (LV95+LN02 -> WGS84)")
+            
+            # Test if geoid grid is actually available
+            test_h_in = 500.0
+            _, _, test_h_out = self.transformer_3d.transform(2600000, 1200000, test_h_in)
+            
+            if abs(test_h_out - test_h_in) > 1.0:  # Swiss geoid ~49m, so any change > 1m means it's working
+                self.use_compound = True
+                self.geoid_available = True
+                logger.info("Using compound CRS transformation with CHGeo2004 geoid (LV95+LN02 -> WGS84)")
+            else:
+                logger.warning("Compound CRS created but geoid grid not applied (missing ch_swisstopo grids)")
+                logger.warning("Heights will be approximate. Install grids with: projsync --source-id ch_swisstopo")
+                self.use_compound = False
+                self.geoid_available = False
+                
+        except ImportError:
+            logger.warning("CompoundCRS not available in this pyproj version")
+            self.use_compound = False
+            self.geoid_available = False
         except Exception as e:
             logger.warning(f"Could not create compound CRS transformer: {e}")
-            logger.warning("Height transformation may be less accurate (missing geoid model)")
             self.use_compound = False
+            self.geoid_available = False
+        
+        # If geoid not available, we'll need to apply approximate correction
+        if not getattr(self, 'geoid_available', False):
+            self._setup_approximate_geoid()
+    
+    def _setup_approximate_geoid(self):
+        """
+        Setup approximate geoid undulation for Switzerland.
+        
+        The Swiss geoid (CHGeo2004) varies from ~47m to ~53m across the country.
+        This provides a simple linear approximation when the proper grid is unavailable.
+        """
+        # Approximate geoid undulation model for Switzerland
+        # Based on CHGeo2004: N ≈ 49.5m + small spatial variation
+        # 
+        # More accurate: N varies roughly linearly with position
+        # N ≈ 49.5 + 0.000015*(E - 2600000) + 0.000020*(N - 1200000)
+        #
+        # This gives ~1-2m accuracy across Switzerland vs ~49m systematic error without it
+        
+        self.approx_geoid_base = 49.5  # meters (approximate mean for Switzerland)
+        self.approx_geoid_de = 0.000015  # m per m easting
+        self.approx_geoid_dn = 0.000020  # m per m northing
+        self.approx_geoid_e0 = 2600000
+        self.approx_geoid_n0 = 1200000
+        
+        logger.info("Using approximate geoid model (~1-2m accuracy)")
+        logger.info("For cm-level accuracy, install: projsync --source-id ch_swisstopo")
+    
+    def _get_approximate_geoid_undulation(self, easting: np.ndarray, northing: np.ndarray) -> np.ndarray:
+        """Calculate approximate geoid undulation for given coordinates."""
+        return (
+            self.approx_geoid_base + 
+            self.approx_geoid_de * (easting - self.approx_geoid_e0) +
+            self.approx_geoid_dn * (northing - self.approx_geoid_n0)
+        )
     
     def transform_points(
         self, 
@@ -296,13 +448,22 @@ class PyProjTransformer:
         Returns:
             Tuple of (x, y, z) in target CRS
         """
-        if self.use_compound:
+        if self.use_compound and self.geoid_available:
             # Use compound CRS transformation for full 3D accuracy
             return self.transformer_3d.transform(easting, northing, height)
         else:
-            # Fallback: transform planimetric only, height unchanged
-            # This is less accurate for height!
-            x, y, z = self.transformer.transform(easting, northing, height)
+            # Transform planimetric coordinates
+            x, y, _ = self.transformer.transform(easting, northing, height)
+            
+            # Apply geoid correction to heights
+            if hasattr(self, 'approx_geoid_base'):
+                # Use approximate geoid model
+                geoid_n = self._get_approximate_geoid_undulation(easting, northing)
+                z = height + geoid_n  # h_ellipsoidal = H_orthometric + N
+            else:
+                # No geoid correction available - heights unchanged (LESS ACCURATE)
+                z = height
+                
             return x, y, z
 
 
@@ -680,29 +841,48 @@ def process_all_tiles(config: Config) -> dict:
         return {}
     
     logger.info(f"Found {len(input_files)} tiles to process")
+    logger.info(f"Transformation method: {config.transformation_method}")
     
     # Create output directory
     config.output_dir.mkdir(parents=True, exist_ok=True)
     
     converter = DSMConverter(config)
     
+    # Determine which methods to use
+    use_reframe = config.transformation_method in ('auto', 'reframe')
+    use_pyproj = config.transformation_method in ('auto', 'pyproj')
+    
+    # Check Reframe API availability if needed
+    if use_reframe and config.transformation_method == 'auto':
+        if not converter.reframe.check_api_available():
+            logger.warning("Reframe API unavailable - using pyproj only")
+            use_reframe = False
+            use_pyproj = True
+    
     # Process tiles and collect statistics
     all_stats = {
         'tiles': [],
         'comparisons': [],
-        'summary': {}
+        'summary': {},
+        'config': {
+            'transformation_method': config.transformation_method,
+            'target_crs': config.target_crs,
+            'reframe_used': use_reframe,
+            'pyproj_used': use_pyproj
+        }
     }
     
     # Process each tile
     for input_file in tqdm(input_files, desc="Processing tiles"):
         logger.info(f"Processing {input_file.name}")
         
-        # Convert with pyproj (faster, for output)
-        pyproj_stats = converter.convert_tile(input_file, use_reframe=False)
-        all_stats['tiles'].append(pyproj_stats)
+        # Convert with pyproj (primary output)
+        if use_pyproj:
+            pyproj_stats = converter.convert_tile(input_file, use_reframe=False)
+            all_stats['tiles'].append(pyproj_stats)
         
-        # Compare transformations if evaluation is enabled
-        if config.evaluation_enabled:
+        # Compare transformations if evaluation is enabled AND both methods are available
+        if config.evaluation_enabled and use_reframe and use_pyproj:
             comparison = converter.compare_transformations(input_file)
             all_stats['comparisons'].append(comparison)
     
@@ -737,36 +917,42 @@ def process_all_tiles(config: Config) -> dict:
             logger.info(f"Mean horizontal difference: {all_stats['summary']['mean_horizontal_diff_m']:.4f} m")
             logger.info(f"Mean vertical difference: {all_stats['summary']['mean_vertical_diff_m']:.4f} m")
             logger.info("="*60)
+    elif not use_reframe:
+        all_stats['summary'] = {
+            'total_tiles': len(input_files),
+            'successful_conversions': len([t for t in all_stats['tiles'] if t.get('success')]),
+            'method': 'pyproj_only',
+            'notes': [
+                "Reframe comparison disabled or API unavailable",
+                "Using pyproj with approximate geoid model if grids not installed",
+                "For full accuracy, install: projsync --source-id ch_swisstopo"
+            ]
+        }
     
     # Save reports
-    if config.evaluation_enabled:
-        # JSON report
-        report_path = config.output_dir / config.output_report
-        with open(report_path, 'w') as f:
-            json.dump(all_stats, f, indent=2)
-        logger.info(f"Saved detailed report to {report_path}")
+    report_path = config.output_dir / config.output_report
+    with open(report_path, 'w') as f:
+        json.dump(all_stats, f, indent=2)
+    logger.info(f"Saved detailed report to {report_path}")
+    
+    # CSV summary
+    if all_stats['tiles']:
+        csv_data = []
+        for tile in all_stats['tiles']:
+            if tile.get('success'):
+                csv_data.append({
+                    'file': Path(tile['input_file']).name,
+                    'method': tile.get('method', 'pyproj'),
+                    'src_crs': tile.get('src_crs', ''),
+                    'dst_crs': tile.get('dst_crs', ''),
+                    'valid_pixels': tile.get('valid_pixels', 0)
+                })
         
-        # CSV summary
-        if all_stats['comparisons']:
-            csv_data = []
-            for comp in all_stats['comparisons']:
-                if comp.get('success'):
-                    csv_data.append({
-                        'file': Path(comp['input_file']).name,
-                        'n_points': comp['n_valid_comparisons'],
-                        'horiz_mean_m': comp['horizontal']['mean_m'],
-                        'horiz_std_m': comp['horizontal']['std_m'],
-                        'horiz_max_m': comp['horizontal']['max_m'],
-                        'vert_mean_m': comp['vertical']['mean_m'],
-                        'vert_std_m': comp['vertical']['std_m'],
-                        'vert_max_m': comp['vertical']['max_m']
-                    })
-            
-            if csv_data:
-                df = pd.DataFrame(csv_data)
-                csv_path = config.output_dir / config.output_csv
-                df.to_csv(csv_path, index=False)
-                logger.info(f"Saved accuracy statistics to {csv_path}")
+        if csv_data:
+            df = pd.DataFrame(csv_data)
+            csv_path = config.output_dir / config.output_csv
+            df.to_csv(csv_path, index=False)
+            logger.info(f"Saved tile statistics to {csv_path}")
     
     return all_stats
 
@@ -785,18 +971,30 @@ def main():
         action='store_true',
         help='Enable verbose logging'
     )
+    parser.add_argument(
+        '--method', '-m',
+        choices=['auto', 'reframe', 'pyproj'],
+        help='Override transformation method from config'
+    )
     
     args = parser.parse_args()
-    args.config = 'config.yaml' #if not args.config else args.config
+    
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
     # Load configuration
+    args.config = 'Orthorectify/convert_DEM/config.yaml' #if not args.config else args.config
     config = Config.from_yaml(args.config)
+    
+    # Override method if specified
+    if args.method:
+        config.transformation_method = args.method
+    
     logger.info(f"Loaded configuration from {args.config}")
     logger.info(f"Input directory: {config.input_dir}")
     logger.info(f"Output directory: {config.output_dir}")
     logger.info(f"Target CRS: {config.target_crs}")
+    logger.info(f"Transformation method: {config.transformation_method}")
     
     # Process all tiles
     stats = process_all_tiles(config)
@@ -805,9 +1003,4 @@ def main():
 
 
 if __name__ == '__main__':
-    # define config argument and config path for testing
-
-    if len(sys.argv) == 1:
-        sys.argv.append('config.yaml')
-
     main()

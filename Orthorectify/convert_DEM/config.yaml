@@ -16,6 +16,13 @@ target_crs: "EPSG:4979"  # WGS84 3D (lon, lat, ellipsoidal height)
 # - "EPSG:4258" for ETRS89 2D
 # - "EPSG:4937" for ETRS89 3D
 
+# Transformation method
+# Options: "auto", "reframe", "pyproj"
+# - "auto": Try Reframe first, fall back to pyproj if API unavailable
+# - "reframe": Use SwissTopo Reframe API only (requires network)
+# - "pyproj": Use pyproj only (works offline, uses approximate geoid if grids missing)
+transformation_method: "pyproj"
+
 # SwissTopo Reframe API settings
 reframe_api:
   base_url: "https://geodesy.geo.admin.ch/reframe"
