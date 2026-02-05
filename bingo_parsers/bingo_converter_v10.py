@@ -304,13 +304,13 @@ def process_tie_points(root_directory, checkpoint_file=None, target_epsg=2056,
     
     # Write timing information CSV
     with open(output_timing, 'w', newline='') as timing_file:
-        writer = csv.writer(timing_file, delimiter=' ')
+        writer = csv.writer(timing_file,delimiter=' ')
         
         # Write each observation's timing info
         for obs_id in sorted(observation_timing.keys()):
             obs_name, time = observation_timing[obs_id]
+            # add space delimiter betwen obs_id and time
             writer.writerow([obs_id, time])
-    
     print(f"Timing information written to: {output_timing}")
     print(f"Total observations processed: {observation_id - 1}")
 
