@@ -260,6 +260,30 @@ def load_timing_file(csv_path):
     df = pd.read_csv(csv_path, names=['id', 'time'], dtype={'id': str},delimiter=' ')
     return pd.Series(df.time.values, index=df.id).to_dict()
 
+def load_av4_timing(img_path):
+    """
+    Expects CSV with columns: id, time
+    Returns a dictionary mapping img_id -> timestamp
+    """
+    # for all subdirs in img_path, using glob recursive search for file with .timing and sort and concatenate to return single dataframe
+    import glob
+    import os       
+    timing_files = glob.glob(os.path.join(img_path, '**', '*.timing'), recursive=True)
+    
+    for timing_file in timing_files:
+        # append all timing files into a single dataframe
+        df_list = []
+        for timing_file in timing_files:
+            df_temp = pd.read_csv(timing_file, names=['time'], dtype={'time': float},delimiter=' ')
+            df_list.append(df_temp)
+    df = pd.concat(df_list, ignore_index=True)
+        #timing_dict.update(pd.Series(df.time.values, index=df.id).to_dict())
+    # ensure times are sorted in ascending order
+    times = df['time'].values
+    times.sort()
+    return times
+
+
 def parse_bingo_file(filepath):
     """
     Parses BINGO format correspondences.

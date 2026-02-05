@@ -1,0 +1,27 @@
+project:
+  name: "Clmbier_Cal_test_3D_Checkpoints"
+  epsg: 2056  # CH 1903+ / LV95
+  parse_sbet: True
+paths:
+  gcp_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_input_260105/GCPs.txt"
+  bingo_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_input_260105/bingo.txt"
+  img_files: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/bil/proc"     # Cols: id, time
+  sbet_file: "/media/addLidar/AVIRIS_4_Testing/AVRIS4_HB-TEN_lever_arm_measurement/01_processings/InertialExplorer/output/SBET_lever_arm_Riegl_V2_GPST.OUT" # Cols: timestamp, x, y, z, roll, pitch, yaw
+  output_report: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/triangulation_report.csv"
+  trajectory_file: "/media/addLidar/AVIRIS_4_Testing/AVRIS4_HB-TEN_lever_arm_measurement/01_processings/InertialExplorer/output/SBET_lever_arm_Riegl_V2_GPST.csv"
+
+camera:
+  focal_length_px: 1697.41   # fx, fy (assuming square pixels)
+  principal_point: [0, 0]  # cx, cy
+  image_size: [1241, 1241]  # width, height
+
+mounting:
+  # Physical offset from IMU center to Camera center in Body Frame (meters)
+  lever_arm: [0.076, -0.290324, -0.10]
+  
+  # Nominal rotation to align Body frame with Camera Frame (Degrees)
+  # [0, 0, -90] maps Body X->Forward to Camera X->Right
+  nominal_mount_rpy_deg: [0.0, 0.0, 90.0]
+  
+  # Small calibration corrections (Radians)
+  boresight_rpy_rad: [0.0, 0.0, 0.0]

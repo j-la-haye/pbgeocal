@@ -5,7 +5,7 @@ from pyproj import Transformer
 from dataclasses import dataclass
 from collections import defaultdict
 from typing import List, Tuple, Dict, Optional
-from photogrammetry_verify.io_utils import load_timing_file, parse_gcp_file,parse_bingo_file
+from photogrammetry_verify.io_utils import load_av4_timing, load_timing_file, parse_gcp_file,parse_bingo_file
 from liblibor.map import TangentPlane, Trajectory,Pose_std,log, loadSBET
 from pathlib import Path
 
@@ -341,11 +341,14 @@ def main(config_path="config.yaml"):
     print(f"    Loaded {len(gcp_dict)} GCP coordinates")
 
      # Load Timing (Image ID -> Time)
-    timing_map = load_timing_file(cfg['paths']['timing_file'])
+    #timing_map = load_timing_file(cfg['paths']['timing_file'])
+
+    av4_timing = load_av4_timing(cfg['paths']['img_files'])
+    img_times = av4_timing / 1e5  # Convert to seconds if needed
 
     # Define time span of images
-    img_times = np.array([timing_map[img_id]  for img_id in timing_map])
-    time_buffer = 3
+    #img_times = np.array([timing_map[img_id]  for img_id in timing_map])
+    time_buffer = 100
     img_time_span = [img_times.min()-time_buffer, img_times.max()+time_buffer]
    
     t_start, t_end = img_time_span
@@ -356,12 +359,12 @@ def main(config_path="config.yaml"):
     if cfg['project'].get('parse_sbet', True):
         log("[2/3] Loading SBET data...", verbose=True, force=True)
         # Extract time, lla, rpy from sbet_df
-        #print(f"Loading SBET from {cfg['paths']['sbet_file']}...")
+        print(f"Loading SBET from {cfg['paths']['sbet_file']}...")
         t,lla,rpy = loadSBET(Path(cfg['paths']['sbet_file']))
         mask = (t >= img_time_span[0]) & (t <= img_time_span[1])
         #tspan = t[mask]
         img_lla = lla[mask,:]
-        #rpy = rpy[mask,:]
+        rpy = rpy[mask,:]
         lat0 = np.degrees(img_lla[0,0])
         lon0 = np.degrees(img_lla[0,1])
         alt0 = img_lla[0,2]
@@ -372,6 +375,20 @@ def main(config_path="config.yaml"):
         print(f"    Loaded {len(trajectory.t)} trajectory epochs")
         log("[3/3] Interpolating poses...", verbose=True, force=True)
         # Create coordinate transformer
+
+        # Write trajectory within image time span to CSV for debugging
+        # with open(cfg['paths']['trajectory_file'], "w") as f:
+        #     f.write("time,lat,lon,alt,roll,pitch,yaw\n")
+        #     for i in range(len(trajectory.t)):
+        #         f.write(f"{trajectory.t[i]},{trajectory.lla[0,i]},{trajectory.lla[1,i]},{trajectory.lla[2,i]},{trajectory.rpy[0,i]},{trajectory.rpy[1,i]},{trajectory.rpy[2,i]}\n")
+        # print(f"    Wrote trajectory to {cfg['paths']['trajectory_file']}")
+        # # Interpolate poses at image times
+
+        # write t,lla,rpy to csv downsampled every 100th for debugging
+        with open(cfg['paths']['trajectory_file'] + "_downsampled.csv", "w") as f:
+            f.write("time,lat,lon,alt,roll,pitch,yaw\n")
+            for i in range(0, len(t),100):
+                f.write(f"{t[i]},{lla[i,0]},{lla[i,1]},{lla[i,2]},{rpy[i,0]},{rpy[i,1]},{rpy[i,2]}\n")
         
         img_poses = trajectory.interpolate(img_times, cfg)
         # write poses to csv for debugging
@@ -514,4 +531,4 @@ def main(config_path="config.yaml"):
     except KeyError:
         print("Output path not defined in config.")
 if __name__ == "__main__":
-    main("raytrace2D_3D/config_addlidar.yaml")
+    main("raytrace2D_3D/extract_av4_traj.yaml")

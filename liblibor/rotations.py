@@ -57,12 +57,12 @@ def R_b2ned(r, p, y):
     """
     Rotation matrix from body to local NED frame given roll (r), pitch (p), yaw (y) in radians
     """
-    #return (R1(r) @ R2(p) @ R3(y)).T
-    return (R3(y) @ R2(p) @ R1(r)).T
+    return (R1(r) @ R2(p) @ R3(y)).T
+    return (R3(y) @ R2(p) @ R1(r))
 
 def R_ned2b(r, p, y):
     """
-    Rotation matrix from body to local NED frame given roll (r), pitch (p), yaw (y) in radians
+    Rotation matrix from local NED to body frame given roll (r), pitch (p), yaw (y) in radians
     """
     return R1(r) @ R2(p) @ R3(y)
     

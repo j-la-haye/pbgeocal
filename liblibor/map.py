@@ -17,6 +17,30 @@ proj_lla = pyproj.Proj(proj='latlong', ellps='WGS84', datum='WGS84')
 lla2ecefTransformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:4978", always_xy=True)
 ecef2llaTransformer = pyproj.Transformer.from_crs("EPSG:4978", "EPSG:4326")
 
+
+
+# 1. Define the source (ECEF) and target (LV95 + LN02)
+# We use a compound CRS for the target: "EPSG:2056+5728"
+source_crs = "EPSG:4978"
+target_crs = "EPSG:2056+5728"
+
+# 2. Initialize the transformer
+# 'always_xy=True' ensures input/output follows (E, N, H) or (X, Y, Z) 
+# rather than traditional Lat/Lon ordering
+ecef2lv95_ln02transformer = pyproj.Transformer.from_crs(source_crs, target_crs, always_xy=True)
+
+# 3. Example ECEF coordinates (X, Y, Z in meters)
+# These coordinates are roughly near Bern, Switzerland
+ecef_x = 4371110.0
+ecef_y = 569100.0
+ecef_z = 4602330.0
+
+# 4. Perform the transformation
+east, north, height_ln02 = ecef2lv95_ln02transformer.transform(ecef_x, ecef_y, ecef_z)
+print(f"East (E):   {east:.3f}")
+print(f"North (N):  {north:.3f}")
+print(f"Height:     {height_ln02:.3f} m (LN02)")
+
 from liblibor.rotations import *
 
 class TangentPlane:

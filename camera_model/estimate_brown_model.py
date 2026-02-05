@@ -229,6 +229,9 @@ if __name__ == "__main__":
     FOV = 40.2 # degrees
     pixels_measured = px[valid_indices]
     xt_obs = angles[valid_indices]
+    # save xt_obs to csv
+    np.savetxt('/media/addLidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/AV4_acrosstrack_PSF_2024_valid_angles.csv', xt_obs, delimiter=',')
+
     FOV_measured = np.round(xt_obs[-1] - xt_obs[0], 2)
     num_pixels = len(valid_indices)
     #pixels_measured = np.linspace(0, 2000, num_pixels)

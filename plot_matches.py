@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+#import matplotlib
+#matplotlib.use('Qt5Agg')  # Use Qt5Agg backend for interactive features
 from matplotlib.patches import ConnectionPatch
 import pandas as pd
 from spectral import envi
@@ -103,7 +105,7 @@ def visualize_matches(img1_hdr, img2_hdr, matches_csv, delimiter=',', max_matche
     print(f"Visualizing {len(matches)} matches...")
     
     # Create figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(4, 4))
     
     # Display images
     ax1.imshow(img1)
@@ -187,21 +189,16 @@ def main():
     Main function - modify these paths for your data
     """
     #Data Paths 
-    img1_hdr = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/' \
-    'l3_rgb/bil_data/M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450.hdr'
-    img2_hdr = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/' \
-    'l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.hdr'
-    matches_csv = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/rgb_matches/' \
-    '   ' \
-    '' \
-    'rgb_matches_export/M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450_M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.txt'
+    img1_hdr = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l3_rgb/bil_data/M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450.hdr'
+    img2_hdr = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.hdr'
+    matches_csv = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/rgb_matches/rgb_matches_export/M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450_M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.txt'
     
     # Delimiter for the matches file
     # Common options: ',' (comma), ' ' (space), '\t' (tab)
     delimiter = ' '
     
     # Limit number of matches for clearer visualization (optional)
-    max_matches = 50  # Set to None to show all matches
+    max_matches = 20  # Set to None to show all matches
     
     try:
         fig, ax1, ax2, matches = visualize_matches(
@@ -218,6 +215,7 @@ def main():
         
         # Try to show interactively (will work in interactive environments)
         try:
+
             plt.show()
         except:
             pass
