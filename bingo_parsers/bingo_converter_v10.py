@@ -302,13 +302,13 @@ def process_tie_points(root_directory, checkpoint_file=None, target_epsg=2056,
     
     # Write timing information CSV
     with open(output_timing, 'w', newline='') as timing_file:
-        writer = csv.writer(timing_file)
+        writer = csv.writer(timing_file,delimiter=' ')
         
         # Write each observation's timing info
         for obs_id in sorted(observation_timing.keys()):
             obs_name, time = observation_timing[obs_id]
+            # add space delimiter betwen obs_id and time
             writer.writerow([obs_id, time])
-    
     print(f"Timing information written to: {output_timing}")
     print(f"Total observations processed: {observation_id - 1}")
 
@@ -327,7 +327,7 @@ if __name__ == "__main__":
     
     #root_dir = "."  # Current directory, change this to your data directory
     root_dir = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/raw/unrectified/UVT"
-    checkpoint_file = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/LandMark_GCP_DSM_ECEF_test.csv"  # Path to checkpoint file with ECEF coordinates
+    checkpoint_file = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/DSM_check_points/DEM_GCP.csv"  # Path to checkpoint file with ECEF coordinates
     
     output_bingo = Path(root_dir) / 'bingo.txt'
     output_timing = Path(root_dir) / 'image_timestamps.txt'
