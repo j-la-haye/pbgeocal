@@ -4,6 +4,8 @@ from matplotlib.patches import ConnectionPatch
 import pandas as pd
 from spectral import envi
 
+
+
 def read_envi_rgb(hdr_file):
     """
     Read RGB BIL ENVI format image.
@@ -103,15 +105,15 @@ def visualize_matches(img1_hdr, img2_hdr, matches_csv, delimiter=',', max_matche
     print(f"Visualizing {len(matches)} matches...")
     
     # Create figure with two subplots
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 10))
     
     # Display images
     ax1.imshow(img1)
-    ax1.set_title('Image 1', fontsize=14, fontweight='bold')
+    ax1.set_title('Image 1', fontsize=12, fontweight='bold')
     ax1.axis('on')
     
     ax2.imshow(img2)
-    ax2.set_title('Image 2', fontsize=14, fontweight='bold')
+    ax2.set_title('Image 2', fontsize=12, fontweight='bold')
     ax2.axis('on')
     
     # Plot matching points with numbered labels and connecting lines
