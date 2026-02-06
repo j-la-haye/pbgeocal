@@ -53,6 +53,8 @@ pip install -r requirements.txt
 
 # (Optional) Download PROJ grid files for better pyproj accuracy
 # Note: projsync may be broken, use manual download instead:
+try: projsync --source-id ch_swisstopo
+
 mkdir -p ~/.local/share/proj
 cd ~/.local/share/proj
 wget https://cdn.proj.org/ch_swisstopo_CHENyx06_ETRS.tif

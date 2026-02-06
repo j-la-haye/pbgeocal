@@ -7,8 +7,6 @@ Converts GeoTiff DSM tiles using:
 2. Pyproj (for comparison)
 
 Evaluates transformation accuracy differences between methods.
-
-Author: Claude
 """
 
 import argparse
@@ -25,8 +23,10 @@ import numpy as np
 import pandas as pd
 import rasterio
 import requests
+from requests.adapters import HTTPAdapter
 import yaml
 from pyproj import CRS, Transformer
+from urllib3.util.retry import Retry
 from rasterio.transform import from_bounds
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from scipy.interpolate import RegularGridInterpolator
@@ -103,45 +103,58 @@ class Config:
 class ReframeAPI:
     """SwissTopo Reframe API client for coordinate transformations."""
     
+    # Inter-request delay (seconds) to avoid overwhelming the server
+    REQUEST_DELAY = 0.05
+
     def __init__(self, config: Config):
         self.base_url = config.reframe_base_url
         self.timeout = config.reframe_timeout
         self.max_retries = config.reframe_max_retries
         self.retry_delay = config.reframe_retry_delay
         self.batch_size = config.reframe_batch_size
-        self.session = requests.Session()
         self._api_available = None  # Cache API availability
-        
-        # Configure proxy settings
-        self._configure_proxy(config)
-    
-    def _configure_proxy(self, config):
+
+        # Build a session with urllib3-level retry on 502/503/504
+        # This handles the server-side reverse-proxy 502 errors
+        # transparently at the HTTP adapter layer.
+        self.session = self._build_session(config)
+
+    @staticmethod
+    def _build_session(config: Config) -> requests.Session:
         """
-        Configure proxy settings for the session.
-        
-        Proxy can be set via:
-        1. Config file (reframe_api.proxy)
-        2. Environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
-        3. System proxy settings
+        Create a requests.Session with:
+          - urllib3 automatic retries for 502 / 503 / 504 with backoff
+          - proxy bypass (trust_env=False) so system / env proxies
+            do not interfere with the Swiss federal API
+          - optional explicit proxy from config
         """
-        # Check for proxy in config
+        session = requests.Session()
+        session.trust_env = False  # bypass env HTTP_PROXY / HTTPS_PROXY
+
+        # Explicit proxy override from config file
         proxy_url = getattr(config, 'reframe_proxy', None)
-        
         if proxy_url:
-            self.session.proxies = {
-                'http': proxy_url,
-                'https': proxy_url
-            }
+            session.proxies = {'http': proxy_url, 'https': proxy_url}
             logger.info(f"Using configured proxy: {proxy_url}")
-        elif os.environ.get('HTTPS_PROXY') or os.environ.get('HTTP_PROXY'):
-            # Let requests use environment variables automatically
-            logger.info("Using proxy from environment variables")
-        else:
-            # Try to bypass proxy for Swiss government domains
-            # This works if NO_PROXY is respected
-            no_proxy = os.environ.get('NO_PROXY', '')
-            if 'geo.admin.ch' not in no_proxy:
-                logger.debug("Consider adding 'geo.admin.ch' to NO_PROXY if experiencing proxy issues")
+
+        # urllib3 retry strategy – handles 502 at the transport layer
+        retry_strategy = Retry(
+            total=config.reframe_max_retries + 2,   # extra headroom
+            backoff_factor=config.reframe_retry_delay,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET", "POST"],
+            raise_on_status=False,  # let us inspect the response
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+
+        session.headers.update({
+            'Accept': 'application/json',
+            'User-Agent': 'DSM-Converter/1.0',
+        })
+
+        return session
     
     def check_api_available(self) -> bool:
         """Check if the Reframe API is reachable."""
@@ -149,14 +162,16 @@ class ReframeAPI:
             return self._api_available
         
         try:
-            # Test with a simple request
             response = self.session.get(
                 f"{self.base_url}/lv95towgs84",
                 params={'easting': '2600000', 'northing': '1200000', 'altitude': '500', 'format': 'json'},
                 timeout=10
             )
             self._api_available = response.status_code == 200
-        except Exception:
+            if self._api_available:
+                logger.info("Reframe API is reachable")
+        except Exception as exc:
+            logger.debug(f"Reframe API connectivity check failed: {exc}")
             self._api_available = False
         
         if not self._api_available:
@@ -227,67 +242,80 @@ class ReframeAPI:
         northing: np.ndarray, 
         height: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
-        """Transform a single batch of points via the API. Returns (lon, lat, h, failure_count)."""
-        
+        """Transform a single batch of points via the API.
+
+        The urllib3 Retry adapter already retries transparently on
+        502/503/504 with exponential back-off.  This method adds one
+        more application-level retry loop (with a longer sleep) as a
+        safety net, plus a small inter-request delay to avoid
+        overwhelming the Swiss federal server.
+
+        Returns (lon, lat, h, failure_count).
+        """
         lon_out = np.full(len(easting), np.nan)
         lat_out = np.full(len(easting), np.nan)
         h_out = np.full(len(easting), np.nan)
         failures = 0
-        
+        url = f"{self.base_url}/lv95towgs84"
+
         for i, (e, n, h) in enumerate(zip(easting, northing, height)):
             if np.isnan(h):
                 continue
-                
-            # Reframe API endpoint for LV95 -> WGS84 transformation
+
             params = {
                 'easting': f'{e:.3f}',
                 'northing': f'{n:.3f}',
                 'altitude': f'{h:.3f}',
                 'format': 'json'
             }
-            
+
             success = False
             for attempt in range(self.max_retries):
                 try:
+                    # Small delay between requests to be gentle on the
+                    # server and reduce 502 rate from the reverse proxy.
+                    if i > 0 or attempt > 0:
+                        time.sleep(self.REQUEST_DELAY)
+
                     response = self.session.get(
-                        f"{self.base_url}/lv95towgs84",
-                        params=params,
-                        timeout=self.timeout
+                        url, params=params, timeout=self.timeout
                     )
-                    response.raise_for_status()
-                    data = response.json()
-                    
-                    # Parse response - Reframe returns WGS84 coordinates
-                    lon_out[i] = data.get('easting', data.get('longitude'))
-                    lat_out[i] = data.get('northing', data.get('latitude'))
-                    h_out[i] = data.get('altitude', h)
-                    success = True
-                    break
-                    
-                except requests.exceptions.RequestException as ex:
-                    # Exponential backoff
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        lon_out[i] = float(data['easting'])
+                        lat_out[i] = float(data['northing'])
+                        h_out[i] = float(data['altitude'])
+                        success = True
+                        break
+
+                    # Server returned a non-200 after urllib3 exhausted
+                    # its own retries — apply application-level backoff.
                     delay = self.retry_delay * (2 ** attempt)
-                    
+                    logger.debug(
+                        f"Retry {attempt+1}/{self.max_retries} for "
+                        f"({e}, {n}, {h}): HTTP {response.status_code}, "
+                        f"waiting {delay:.1f}s"
+                    )
+                    time.sleep(delay)
+
+                except requests.exceptions.RequestException as ex:
+                    delay = self.retry_delay * (2 ** attempt)
                     if attempt < self.max_retries - 1:
-                        # Check if it's a server error worth retrying
-                        if hasattr(ex, 'response') and ex.response is not None:
-                            status = ex.response.status_code
-                            if status in (429, 500, 502, 503, 504):
-                                logger.debug(f"Retry {attempt+1}/{self.max_retries} after {status} error, waiting {delay:.1f}s")
-                                time.sleep(delay)
-                                continue
-                        else:
-                            # Connection error - retry with backoff
-                            logger.debug(f"Retry {attempt+1}/{self.max_retries} after connection error, waiting {delay:.1f}s")
-                            time.sleep(delay)
-                            continue
-                    
-                    # Final failure
-                    logger.warning(f"Failed to transform point ({e}, {n}, {h}): {ex}")
-            
+                        logger.debug(
+                            f"Retry {attempt+1}/{self.max_retries} after "
+                            f"error for ({e}, {n}, {h}): {ex}, "
+                            f"waiting {delay:.1f}s"
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.warning(
+                            f"Failed to transform point ({e}, {n}, {h}): {ex}"
+                        )
+
             if not success:
                 failures += 1
-        
+
         return lon_out, lat_out, h_out, failures
     
     def transform_points_bulk(
