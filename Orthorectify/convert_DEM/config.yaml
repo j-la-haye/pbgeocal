@@ -2,8 +2,8 @@
 # Converts Swiss LV95/LN02 GeoTiff tiles to WGS84/ETRS89
 
 # Input/Output directories
-input_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/tiles/DSM_TEST"
-output_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/tiles/DSM_WGS84"
+input_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/lv95/DSM_LN02_LV95"
+output_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/wgs84/DSM_converted_ss3d"
 
 # Coordinate Reference Systems
 source_crs:
