@@ -1,0 +1,29 @@
+project:
+  epsg: 2056  # CH1903+ / LV95
+  point_cloud_csv: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/GCP.txt"
+  
+  # New Inputs
+  bingo_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/bingo.txt"
+  timing_csv: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/image_timestamps.txt"     # Cols: id, time
+  trajectory: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/reference.out" # Cols: timestamp, x, y, z, roll, pitch, yaw
+
+camera:
+  width: 1240
+  height: 1240
+  #focal_length_mm: 54.0
+  #pixel_size_um: 3.1875  # micrometers
+  fx: 1683.01  # pixels
+  fy: 1683.01  # pixels
+  fov: 40.2 # degrees
+  # BINGO coordinates are typically centered. 
+  # This script converts them to Top-Left using these cx/cy values.
+  cx: 0
+  cy: 0
+  distortion: [0, 0, 0, 0, 0]
+
+mount:
+  lever_arm: [0.07, -0.290324, -0.1]
+  #rotation_euler: [0, 0, -90]
+  #rotation_euler: [180, 0, 0] 
+  rotation_euler: [178, 0, 0] 
+  rotation_order: 'yxz'  # 'zyx' or 'xyz'

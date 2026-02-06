@@ -1,0 +1,60 @@
+# DSM Tile Conversion Configuration
+# Converts Swiss LV95/LN02 GeoTiff tiles to WGS84/ETRS89
+
+# Input/Output directories
+input_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/lv95/DSM_LN02_LV95"
+output_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/wgs84/DSM_converted_ss3d"
+
+# Coordinate Reference Systems
+source_crs:
+  planimetric: "EPSG:2056"  # LV95 (CH1903+)
+  altimetric: "LN02"         # Swiss leveling network (geoid-based heights)
+
+target_crs: "EPSG:4979"  # WGS84 3D (lon, lat, ellipsoidal height)
+# Alternative targets:
+# - "EPSG:4326" for WGS84 2D (lon, lat only)
+# - "EPSG:4258" for ETRS89 2D
+# - "EPSG:4937" for ETRS89 3D
+
+# Transformation method
+# Options: "auto", "reframe", "pyproj"
+# - "auto": Try Reframe first, fall back to pyproj if API unavailable
+# - "reframe": Use SwissTopo Reframe API only (requires network)
+# - "pyproj": Use pyproj only (works offline, uses approximate geoid if grids missing)
+transformation_method: "auto"
+
+# SwissTopo Reframe API settings
+reframe_api:
+  base_url: "https://geodesy.geo.admin.ch/reframe"
+  # Transformation format for Reframe API
+  # lv95_to_etrf93: LV95/LN02 -> ETRF93 (compatible with WGS84/ETRS89)
+  format: "lv95"
+  timeout: 30  # seconds per request
+  max_retries: 5  # application-level retries (urllib3 also retries internally)
+  retry_delay: 1.0  # base delay between retries (exponential backoff)
+  batch_size: 25  # points per API request (reduced to avoid 502 from server)
+
+# Processing options
+processing:
+  # Resampling method for warped output
+  resampling: "bilinear"  # Options: nearest, bilinear, cubic, lanczos
+  # Output data type (preserve original if null)
+  output_dtype: null
+  # NoData value
+  nodata: -99999
+  # Compression for output GeoTiffs
+  compression: "LZW"
+  # Add compression predictor
+  compression_predictor: 3
+  # Number of parallel workers
+  num_workers: 4
+  # Sample grid spacing for accuracy comparison (in pixels)
+  comparison_sample_spacing: 10
+
+# Accuracy evaluation
+evaluation:
+  enabled: true
+  output_report: "conversion_report.json"
+  output_csv: "accuracy_stats.csv"
+  # Percentiles to compute for error statistics
+  percentiles: [50, 90, 95, 99]

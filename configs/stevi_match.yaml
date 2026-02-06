@@ -1,0 +1,107 @@
+# -----------------------------------------------------------------------------
+# TEMPLATE TYPE REFERENCE
+# -----------------------------------------------------------------------------
+# TYPE     | Meaning           | Expected Params
+# ----------|-------------------|----------------
+# GEOXY     Geographic XY       (x y)
+# GEOXYZ    Geographic XYZ      (x y z)
+# UV        Image coordinates   (u v)
+# XYZ       Cartesian XYZ       (x y z)
+# XYZT      Cartesian XYZT      (x y z t)
+# PRIORID   Reference identifier (none)
+# -----------------------------------------------------------------------------
+# Each entry in the templates list defines one pairing:
+#   TYPE1 [OBJECT1] [PARAMS], TYPE2 [OBJECT2] [PARAMS]
+# The script will automatically determine parameter counts based on TYPE.
+# -----------------------------------------------------------------------------
+# input_file_path: "/Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/raw_matches_export/raw_M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450_M024_250427_CHE_Colombier_Line_40001_131206_162_refl_rgb_650_550_450.txt"
+# templates:
+
+#   - type1: "UV"
+#     object1: "HsBil2"
+#     object1: "line_1"
+#     type2: "UV"
+#     object2: "line_2"
+
+
+# -----------------------------------------------------------------------------
+# TEMPLATE TYPE REFERENCE
+# -----------------------------------------------------------------------------
+# TYPE     | Meaning           | Expected Params
+# ----------|-------------------|----------------
+# GEOXY     Geographic XY       (x y)
+# GEOXYZ    Geographic XYZ      (x y z)
+# UV        Image coordinates   (u v)
+# UVT       Image + Time        (u v t)
+# XYZ       Cartesian XYZ       (x y z)
+# XYZT      Cartesian XYZT      (x y z t)
+# PRIORID   Reference identifier (none)
+# -----------------------------------------------------------------------------
+
+# Root directory containing match text files
+root_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/rgb_matches/raw_matches_export/raw_matches/l4_5"
+
+# Image pair configuration
+image_pair:
+  image1_name: line_4
+  image2_name: line_5
+  image1_timing: /media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l4_rgb/bil_data
+  image2_timing: /media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data
+  time_scale: 1e-5
+templates:
+  - type1: "UVT"
+    object1: {image1_name}
+    type2: "UVT"
+    object2: {image2_name}
+
+  # - type1: "UVT"
+  #   object1: "HsBil2"
+  #   type2: "PRIORID"
+  #   object2: "RoadFeature10"
+
+  # - type1: "UV"
+  #   object1: "HsBil2"
+  #   type2: "UV"
+  #   object2: "HsBil4"
+
+  # - type1: "GEOXY"
+  #   object1: "EPSG:4326"
+  #   type2: "PRIORID"
+  #   object2: "RoadFeature10"
+
+  # - type1: "GEOXYZ"
+  #   object1: "EPSG:4979"
+  #   type2: "PRIORID"
+  #   object2: "RoadFeature10"
+
+  # - type1: "GEOXY"
+  #   object1: "EPSG:4326"
+  #   type2: "UV"
+  #   object2: "HsBil2"
+
+  # - type1: "GEOXYZ"
+  #   object1: "EPSG:4979"
+  #   type2: "UV"
+  #   object2: "HsBil2"
+
+  # - type1: "UV"
+  #   object1: "HsBil2"
+  #   type2: "PRIORID"
+  #   object2: "RoadFeature10"
+
+  # - type1: "UV"
+  #   object1: "HsBil2"
+  #   type2: "UV"
+  #   object2: "HsBil4"
+
+  # - type1: "UV"
+  #   object1: "HsBil2"
+  #   type2: "XYZ"
+  #   object2: "PointCloud7"
+
+  # - type1: "UV"
+  #   object1: "HsBil2"
+  #   type2: "XYZT"
+  #   object2: "LidarCloud9"
+  
+

@@ -1,0 +1,63 @@
+# GCP Reprojection Validation Configuration
+# Example configuration for aerial photogrammetry project
+
+# Coordinate reference system for GCP coordinates
+# 4978 = WGS84 geocentric (ECEF)
+epsg_code: 4978
+
+# Camera intrinsic parameters
+camera:
+  # Focal lengths in pixels
+  fx: 8000.0
+  fy: 8000.0
+  # Principal point (image center)
+  cx: 4000.0
+  cy: 3000.0
+  # Radial distortion coefficients (Brown-Conrady model)
+  k1: -0.08
+  k2: 0.005
+  k3: 0.0
+  # Tangential distortion coefficients
+  p1: 0.0001
+  p2: -0.0001
+  # Image dimensions (required for BINGO coordinate conversion)
+  image_width: 8000
+  image_height: 6000
+
+# Boresight misalignment angles (degrees)
+# Small corrections between IMU body frame and camera frame
+boresight:
+  roll: 0.05
+  pitch: -0.02
+  yaw: 0.1
+
+# Lever arm offset from IMU to camera projection center (meters)
+# Expressed in body frame (Forward-Right-Down)
+lever_arm:
+  x: 0.15   # Forward
+  y: 0.05   # Right  
+  z: -0.30  # Down (negative = up)
+
+# Coordinate conventions
+conventions:
+  # BINGO V-axis convention: true if V is positive upward (photogrammetric)
+  v_axis_up: true
+  # Correspondence file format: 'bingo' or 'csv'
+  correspondence_format: bingo
+  # Trajectory file format: 'csv' or 'sbet'
+  trajectory_format: sbet
+
+# Input file paths (relative to this config file)
+files:
+  # GCP image observations (BINGO format)
+  gcp_image_coords: correspondences.bingo
+  # GCP 3D coordinates in ECEF
+  gcp_geocentric_coords: gcp_ecef.csv
+  # Trajectory data (time-stamped poses)
+  trajectory: trajectory.csv
+  # Image timing file (maps image_id to capture time)
+  timing: image_timing.csv
+
+# Validation threshold in pixels
+# Points with reprojection error below this are considered "passing"
+validation_threshold: 3.0

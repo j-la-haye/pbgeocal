@@ -1,0 +1,22 @@
+# -----------------------------------------------------------------------------
+# UVT GENERATION CONFIGURATION
+# -----------------------------------------------------------------------------
+# Each image has:
+#   - a tie-point file   (marker_name U V)
+#   - a timing file      (one timestamp per line)
+#
+# The script will pair each (U,V) with the timestamp on the same line index
+# and write: UVT <image_name> U V T
+# -----------------------------------------------------------------------------
+
+root_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/raw/unrectified/UV"  # optional base dir for relative paths
+
+# images:
+#   - name: "Line3"
+#     tiepoint_file: "/Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/LandMarks/Stevi_TPs/L3/l3_check_points.csv"   # relative to root_dir or absolute
+#     timing_file: "/Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l3_rgb/bil_data/M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450.bil.timing"         # relative to root_dir or absolute
+
+#   - name: "Line5"
+#     tiepoint_file: "/Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/LandMarks/Stevi_TPs/L5/L5_check_points.csv"
+#     timing_file: "/Volumes/fts-addlidar/fts-addlidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.bil.timing"
+
