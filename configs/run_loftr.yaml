@@ -1,10 +1,10 @@
 images:
-  img1: "img1_hdr = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l3_rgb/bil_data/M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450.bil"
-  img2: "img2_hdr = '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.bil"
+  img1: '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l3_rgb/bil_data/M024_250427_CHE_Colombier_Line_30001_131452_163_refl_rgb_650_550_450.hdr'
+  img2: '/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.hdr'
 
 bands:
-  img1: [3, 2, 1]
-  img2: [3, 2, 1]
+  img1: [2, 1, 0]
+  img2: [2, 1, 0]
 
 algorithms:
   loftr: false
@@ -18,7 +18,7 @@ loftr:
 
 efficientloftr:
   model_name: "zju-community/efficientloftr"
-  threshold: 0.2
+  threshold: 0.05
 
 orb:
   n_features: 5000
@@ -35,5 +35,5 @@ metrics:
   enabled: true
 
 output:
-  directory: "outputs/"
-  top_k_vis: 500
+  directory: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/matches_3_5/"
+  top_k_vis: 50

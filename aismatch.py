@@ -4,14 +4,15 @@ import cv2
 import torch
 import numpy as np
 from spectral import open_image
+from spectral import envi
 from tqdm import tqdm
 from PIL import Image
+import sys
 
 # LoFTR (original) – requires the LoFTR repo in PYTHONPATH
-import sys
 sys.path.append("/media/lasigadmin/BCFE4CF2FE4CA68C/tools/LoFTR/src")
-from loftr import LoFTR
-from loftr.utils.cvpr_ds_config import default_cfg
+#from loftr import LoFTR
+#from loftr.utils.cvpr_ds_config import default_cfg
 
 # EfficientLoFTR from Hugging Face Transformers
 from transformers import AutoImageProcessor, AutoModelForKeypointMatching
@@ -29,7 +30,8 @@ def load_envi_bil_as_gray(path, band_indices=None):
     """
     Load ENVI BIL/BIP/BSQ via spectral and collapse to a single uint8 grayscale image.
     """
-    img = open_image(path)
+    #img = open_image(path)
+    img = envi.open(path)
     cube = np.array(img.load())  # (H, W, C)
 
     if band_indices:
@@ -38,6 +40,30 @@ def load_envi_bil_as_gray(path, band_indices=None):
         gray = sel.mean(axis=2)
     else:
         gray = cube.mean(axis=2)
+
+    gray = gray.astype(np.float32)
+    mn, mx = gray.min(), gray.max()
+    if mx > mn:
+        gray = (gray - mn) / (mx - mn)
+    else:
+        gray = np.zeros_like(gray)
+    gray = (gray * 255.0).clip(0, 255).astype(np.uint8)
+    return gray
+
+def load_envi_bil(path, band_indices=None):
+    """
+    Load ENVI BIL/BIP/BSQ via spectral and collapse to a uint8 n band image.
+    """
+    #img = open_image(path)
+    img = envi.open(path)
+    cube = np.array(img.load())  # (H, W, C)
+
+    if band_indices:
+        band_indices = list(band_indices)
+        sel = cube[:, :, band_indices]
+        gray = sel#.mean(axis=2)
+    else:
+        gray = cube#.mean(axis=2)
 
     gray = gray.astype(np.float32)
     mn, mx = gray.min(), gray.max()
@@ -129,7 +155,7 @@ def preprocess_for_loftr(gray_img):
     return t.unsqueeze(0).unsqueeze(0)
 
 
-def run_loftr(img1_gray, img2_gray, weights_path, device):
+#def run_loftr(img1_gray, img2_gray, weights_path, device):
     """
     Original LoFTR from the ZJU repo (src.loftr).
     """
@@ -159,7 +185,7 @@ def run_efficientloftr(
     img1_gray,
     img2_gray,
     model_name="zju-community/efficientloftr",
-    threshold=0.2,
+    threshold=0.1,
     device="cuda",
 ):
     """
@@ -172,6 +198,7 @@ def run_efficientloftr(
     img1_pil = Image.fromarray(img1_gray)
     img2_pil = Image.fromarray(img2_gray)
     images = [img1_pil, img2_pil]
+
 
     inputs = processor(images, return_tensors="pt").to(device)
 
@@ -296,8 +323,8 @@ def draw_matches(img1, img2, pts1, pts2, conf, name, out_dir, top_k=300):
     pts1 = pts1[idx]
     pts2 = pts2[idx]
 
-    h1, w1 = img1.shape
-    h2, w2 = img2.shape
+    h1, w1 = img1.shape[:2]
+    h2, w2 = img2.shape[:2]
 
     canvas = np.zeros((max(h1, h2), w1 + w2, 3), dtype=np.uint8)
     canvas[:h1, :w1] = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR)
@@ -319,7 +346,7 @@ def draw_matches(img1, img2, pts1, pts2, conf, name, out_dir, top_k=300):
 # =====================================================
 
 def main():
-    with open("config.yaml", "r") as f:
+    with open("configs/run_loftr.yaml", "r") as f:
         cfg = yaml.safe_load(f)
 
     img1_path = cfg["images"]["img1"]
@@ -345,8 +372,8 @@ def main():
     print(f"Using device: {device}")
 
     # Define runners per algorithm
-    def loftr_runner(a, b, **kwargs):
-        return run_loftr(a, b, weights_path=cfg["loftr"]["weights"], device=device)
+    #def loftr_runner(a, b, **kwargs):
+    #    return run_loftr(a, b, weights_path=cfg["loftr"]["weights"], device=device)
 
     def effloftr_runner(a, b, **kwargs):
         # ignores tiling, always full image
@@ -365,7 +392,7 @@ def main():
         return run_surf(a, b, hessian_threshold=cfg["surf"]["hessian_threshold"])
 
     runners = {
-        "loftr": loftr_runner,
+        #"loftr": loftr_runner,
         "efficientloftr": effloftr_runner,
         "orb": orb_runner,
         "surf": surf_runner,
@@ -379,7 +406,18 @@ def main():
 
         # EfficientLoFTR always full image (Option C)
         if name == "efficientloftr":
+            img1 = load_envi_bil(img1_path, bands1)
+            img2 = load_envi_bil(img2_path, bands2)
             pts1, pts2, conf = runner(img1, img2)
+
+            # save points to csv
+            
+            points_data = np.column_stack((pts1, pts2, conf))
+            np.savetxt(os.path.join(out_dir, f"points_{name}.csv"), points_data, delimiter=",", header="x1,y1,x2,y2,confidence", comments='')
+
+            img1 = load_envi_bil_as_gray(img1_path, bands1)
+            img2 = load_envi_bil_as_gray(img2_path, bands2)
+
         else:
             if do_tiling:
                 pts1, pts2, conf = run_tiled_matching(
