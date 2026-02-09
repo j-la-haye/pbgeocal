@@ -2,8 +2,8 @@
 # Converts Swiss LV95/LN02 GeoTiff tiles to WGS84/ETRS89
 
 # Input/Output directories
-input_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/lv95/DSM_LN02_LV95"
-output_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/wgs84/DSM_converted_ss3d"
+input_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/tiles/DSM_TEST"
+output_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/tiles/DSM_WGS84"
 
 # Coordinate Reference Systems
 source_crs:
@@ -18,7 +18,7 @@ target_crs: "EPSG:4979"  # WGS84 3D (lon, lat, ellipsoidal height)
 
 # Transformation method
 # Options: "auto", "reframe", "pyproj"
-# - "auto": Produce BOTH pyproj and reframe outputs for comparison (recommended for evaluation)
+# - "auto": Try Reframe first, fall back to pyproj if API unavailable
 # - "reframe": Use SwissTopo Reframe API only (requires network)
 # - "pyproj": Use pyproj only (works offline, uses approximate geoid if grids missing)
 transformation_method: "auto"
@@ -30,29 +30,9 @@ reframe_api:
   # lv95_to_etrf93: LV95/LN02 -> ETRF93 (compatible with WGS84/ETRS89)
   format: "lv95"
   timeout: 30  # seconds per request
-  max_retries: 3
-  retry_delay: 1.0  # base delay for exponential backoff
-  batch_size: 100  # points per batch for progress reporting
-  
-  # Parallel processing settings (HIGHLY RECOMMENDED for speed)
-  parallel_requests: 10  # Number of concurrent API requests (1 = sequential, 10-50 = fast)
-  
-  # Interpolation settings for large rasters
-  # Instead of transforming every pixel, sample a grid and interpolate
-  use_interpolation: true  # true = fast (sample + interpolate), false = transform every pixel
-  sample_spacing: 10  # Sample every N pixels for interpolation grid (smaller = more accurate, slower)
-  
-  # Proxy configuration (uncomment if needed)
-  # Option 1: Explicit proxy URL
-  # proxy: "http://proxy.example.com:8080"
-  
-  # Option 2: Use system/environment proxy (default)
-  # Set these environment variables before running:
-  #   export HTTPS_PROXY=http://proxy.example.com:8080
-  #   export NO_PROXY=localhost,127.0.0.1
-  
-  # Option 3: Bypass proxy for Swiss government domains
-  # Add to NO_PROXY: export NO_PROXY=$NO_PROXY,geo.admin.ch
+  max_retries: 5  # application-level retries (urllib3 also retries internally)
+  retry_delay: 1.0  # base delay between retries (exponential backoff)
+  batch_size: 100  # points per API request (reduced to avoid 502 from server)
 
 # Processing options
 processing:
@@ -63,7 +43,7 @@ processing:
   # NoData value
   nodata: -99999
   # Compression for output GeoTiffs
-  compression: "DEFLATE"  # Options: NONE, LZW, DEFLATE, etc.
+  compression: "DEFLATE"
   # Add compression predictor
   compression_predictor: 3
   # Number of parallel workers
