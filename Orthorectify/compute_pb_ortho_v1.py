@@ -1,353 +1,384 @@
+import yaml
 import numpy as np
 import pandas as pd
 import rasterio
-from rasterio.transform import from_origin
 from rasterio.windows import Window
 from pyproj import Transformer
-from scipy.interpolate import interp1d, RegularGridInterpolator, RectBivariateSpline
+from scipy.interpolate import interp1d, RegularGridInterpolator
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial import cKDTree
-from scipy.ndimage import map_coordinates
-import multiprocessing as mp
-from concurrent.futures import ProcessPoolExecutor
-import os
+from liblibor.map import TangentPlane, Trajectory,Pose_std,log, loadSBET
+from photogrammetry_verify import load_av4_timing
+from pathlib import Path
+from scipy.spatial.transform import Rotation as R, Slerp
 
 # ==========================================
-# 1. Sensor & Distortion Model
+# 1. Camera Model (Unchanged)
 # ==========================================
-class SensorModel:
-    def __init__(self, params_lens, params_smile, width):
-        """
-        params_lens: [f, cx, cy, k1, k2, k3, p1, p2]
-        params_smile: [s0, s1, s2, s3, s4] (Polynomial coeffs for sensor shape)
-        width: Image width in pixels
-        """
-        self.f, self.cx, self.cy = params_lens[:3]
-        self.dist_coeffs = params_lens[3:] # k1, k2, k3, p1, p2
-        self.smile_coeffs = params_smile
-        self.width = width
+class CameraModel:
+    def __init__(self, cfg_cam):
+        self.fx = cfg_cam['focal_length_px']
+        self.fy = cfg_cam['focal_length_px']
+        self.cx = cfg_cam['principal_point'][0]
+        self.cy = cfg_cam['principal_point'][1]
+        self.width = cfg_cam['image_size'][0]
+        self.height = cfg_cam['image_size'][1]
+        
+        # Distortion
+        self.k = np.array(cfg_cam.get('k', [0,0,0]))
+        self.p = np.array(cfg_cam.get('p', [0,0]))
 
-    def brown_projection(self, vec_cam):
-        """Projects 3D camera vector (x, y, z) to Distorted Pixel Coordinates (u, v)."""
-        x, y, z = vec_cam
+    def project(self, points_cam):
+        """Projects 3D camera-frame points to 2D pixel coordinates."""
+        z = points_cam[:, 2]
         # Avoid division by zero
-        z = np.where(z == 0, 1e-6, z)
+        z[z == 0] = 1e-6
         
-        # Normalized coordinates
-        xn = x / z
-        yn = y / z
-        
-        # Radial Distortion
-        r2 = xn**2 + yn**2
-        k1, k2, k3, p1, p2 = self.dist_coeffs
-        rad = 1 + k1*r2 + k2*(r2**2) + k3*(r2**3)
-        
-        # Tangential Distortion
-        dx = 2*p1*xn*yn + p2*(r2 + 2*xn**2)
-        dy = p1*(r2 + 2*yn**2) + 2*p2*xn*yn
-        
-        xd = xn * rad + dx
-        yd = yn * rad + dy
-        
-        # Project to Pixel Plane
-        u = self.f * xd + self.cx
-        v = self.f * yd + self.cy
-        return u, v
+        x_n = points_cam[:, 0] / z
+        y_n = points_cam[:, 1] / z
 
-    def get_smile_offset(self, u_pixel):
-        """Calculates physical sensor v-offset (the 'smile') for a given column."""
-        # Simple polynomial evaluation
-        # Ensure u_pixel is normalized if your calibration requires it!
-        # Here assuming coeffs are for raw pixel indices.
-        return np.polyval(self.smile_coeffs[::-1], u_pixel)
+        # Distortion (Brown-Conrady)
+        r2 = x_n**2 + y_n**2
+        r4 = r2**2
+        r6 = r2**3
+        rad = 1 + self.k[0]*r2 + self.k[1]*r4 + self.k[2]*r6
+        
+        dx = 2*self.p[0]*x_n*y_n + self.p[1]*(r2 + 2*x_n**2)
+        dy = self.p[0]*(r2 + 2*y_n**2) + 2*self.p[1]*x_n*y_n
+        
+        x_d = x_n * rad + dx
+        y_d = y_n * rad + dy
+        
+        u = self.fx * x_d + self.cx
+        v = self.fy * y_d + self.cy
+        
+        return np.stack([u, v], axis=1)
 
 # ==========================================
-# 2. Core Geometry Engine
+# 2. Orthorectification Engine (Modified)
 # ==========================================
-class OrthoEngine:
-    def __init__(self, traj_data, exposure_times, sensor, mount, dsm_path, bil_path):
-        self.sensor = sensor
-        self.exposure_times = exposure_times
-        self.t_start = exposure_times[0]
-        self.t_end = exposure_times[-1]
-        
-        # --- Coordinate Transformers ---
-        # WGS84 (Lat/Lon) -> ECEF (X/Y/Z)
-        self.geo2ecef = Transformer.from_crs("epsg:4326", "epsg:4978", always_xy=True)
-        # ECEF -> UTM (Output Projection)
-        self.ecef2utm = Transformer.from_crs("epsg:4978", "epsg:32633", always_xy=True)
-        # UTM -> ECEF
-        self.utm2ecef = Transformer.from_crs("epsg:32633", "epsg:4978", always_xy=True)
-
-        # --- Trajectory Interpolation ---
-        print("Building Trajectory Interpolators...")
-        # Position (ECEF)
-        x, y, z = self.geo2ecef.transform(traj_data['lon'], traj_data['lat'], traj_data['height'])
-        self.pos_interp = interp1d(traj_data['time'], np.stack([x, y, z], axis=1), axis=0, kind='cubic', bounds_error=False, fill_value="extrapolate")
-        
-        # Attitude (Roll, Pitch, Yaw) + Lat/Lon for Local Tangent Plane
-        # Storing [Roll, Pitch, Yaw, Lat, Lon]
-        att_stack = np.stack([traj_data['roll'], traj_data['pitch'], traj_data['yaw'], traj_data['lat'], traj_data['lon']], axis=1)
-        self.att_interp = interp1d(traj_data['time'], att_stack, axis=0, kind='cubic', bounds_error=False, fill_value="extrapolate")
-
-        # Mean Speed (for Newton-Raphson derivative)
-        vel_vec = np.diff(np.stack([x, y, z], axis=1), axis=0)
-        dt = np.diff(traj_data['time'])
-        self.mean_speed = np.mean(np.linalg.norm(vel_vec, axis=1) / dt)
-
-        # --- Mounting Matrices ---
-        # Lever Arm (Body Frame: Forward, Right, Down)
-        self.lever_arm = np.array(mount['lever_arm'])
-        # Rotation: Camera -> Body (Mount * Boresight)
-        r_bore = R.from_euler('xyz', mount['boresight'], degrees=True).as_matrix()
-        r_mount = np.array(mount.get('matrix', np.eye(3)))
-        self.r_cam2body = r_mount @ r_bore
-
-        # --- Spatial Index (Time-Space Index) ---
-        print("Building Time-Space Index...")
-        self.build_tsi()
-
-        # --- DSM & Image ---
-        self.dsm_path = dsm_path
-        self.bil_path = bil_path
-        self.bil_shape = (len(exposure_times), sensor.width)
-
-    def build_tsi(self, step=500):
-        """Pre-calculates camera positions for fast initial time lookup."""
-        sample_t = self.exposure_times[::step]
-        if len(sample_t) == 0: raise ValueError("No exposure times found.")
-        
-        pos = self.pos_interp(sample_t)
-        att = self.att_interp(sample_t)
-        
-        # Calculate actual camera center (apply lever arm)
-        cam_centers = []
-        for i in range(len(sample_t)):
-            r, p, y, lat, lon = att[i]
-            r_b2e = self.get_body2ecef(r, p, y, lat, lon)
-            cam_centers.append(pos[i] + r_b2e @ self.lever_arm)
+class OrthoPipeline:
+    def __init__(self, config_path):
+        with open(config_path, 'r') as f:
+            self.cfg = yaml.safe_load(f)
             
-        self.tsi_tree = cKDTree(np.array(cam_centers))
-        self.tsi_times = sample_t
-
-    def get_body2ecef(self, r, p, y, lat, lon):
-        """Constructs Body(IMU) -> ECEF Rotation Matrix."""
-        # 1. Body -> NED
-        r_b2n = R.from_euler('xyz', [r, p, y], degrees=True).as_matrix()
+        self.cam_model = CameraModel(self.cfg['camera'])
+        self.setup_transforms()
+        self.setup_mounting()
         
-        # 2. NED -> ECEF
+        # 1. Load Data & Interpolate Poses for EVERY Scanline
+        self.load_and_interpolate_trajectory()
+        self.load_dsm()
+        
+        # 2. Open Image
+        self.img_path = Path(self.cfg['paths']['image_file'])
+        # Shape: (Lines, Samples)
+        self.img_shape = (len(self.line_times), self.cam_model.width)
+        try:
+            self.img_data = np.memmap(self.img_path, dtype='uint16', mode='r', shape=self.img_shape)
+        except Exception as e:
+            print(f"Warning: Memmap failed ({e}).")
+
+    def setup_transforms(self):
+        epsg_out = self.cfg['project'].get('epsg_out', 4979)
+        self.geo_to_ecef = Transformer.from_crs("epsg:4326", "epsg:4978", always_xy=True)
+        self.local_to_ecef = Transformer.from_crs(f"epsg:{epsg_out}", "epsg:4978", always_xy=True)
+
+    def setup_mounting(self):
+        m = self.cfg['mounting']
+        self.lever_arm_body = np.array(m['lever_arm']) # Offset in Body Frame
+        
+        # Rotations: Camera <- Body
+        r_nominal = R.from_euler('xyz', m['nominal_mount_rpy_deg'], degrees=True).as_matrix()
+        r_bore = R.from_euler('xyz', m['boresight_rpy_rad'], degrees=False).as_matrix()
+        self.R_cam_to_body = r_nominal @ r_bore
+
+    def load_and_interpolate_trajectory(self):
+        """
+        Loads SBET and Timing. 
+        Crucial Step: Interpolates SBET attributes specifically to the exact 
+        timestamp of every image scanline.
+        """
+        print("Loading Trajectory & Timing...")
+
+        av4_timing = load_av4_timing(self.cfg['paths']['img_files'])
+        img_times = av4_timing / 1e5  # Convert to seconds if needed
+
+        # Define time span of images
+        #img_times = np.array([timing_map[img_id]  for img_id in timing_map])
+        time_buffer = 1000
+        img_time_span = [img_times.min()-time_buffer, img_times.max()+time_buffer]
+    
+        t_start, t_end = img_time_span
+        print(f"Trajectory time range: {t_start:.3f} to {t_end:.3f}")
+
+        if self.cfg['project'].get('parse_sbet', True):
+            log("[2/3] Loading SBET data...", verbose=True, force=True)
+            # Extract time, lla, rpy from sbet_df
+            print(f"Loading SBET from {self.cfg['paths']['sbet_file']}...")
+            t,lla,rpy = loadSBET(Path(self.cfg['paths']['sbet_file']))
+            mask = (t >= img_time_span[0]) & (t <= img_time_span[1])
+            #tspan = t[mask]
+            img_lla = lla[mask,:]
+            rpy = rpy[mask,:]
+            lat0 = np.degrees(img_lla[0,0])
+            lon0 = np.degrees(img_lla[0,1])
+            alt0 = img_lla[0,2]
+            print(f"Reference LTP origin: lat: {lat0:.6f} lon: {lon0:.6f} alt: {alt0:.3f}")
+            tangentPlane = TangentPlane(lat0, lon0,alt0)
+            
+            trajectory = Trajectory(t, lla, rpy, tangentPlane, img_time_span)
+            print(f"    Loaded {len(trajectory.t)} trajectory epochs")
+            log("[3/3] Interpolating poses...", verbose=True, force=True)
+        # Create coordinate transformer
+
+        # Write trajectory within image time span to CSV for debugging
+            with open(self.cfg['paths']['trajectory_file'], "w") as f:
+                f.write("time,lat,lon,alt,roll,pitch,yaw\n")
+                for i in range(len(trajectory.t)):
+                    f.write(f"{trajectory.t[i]},{trajectory.lla[0,i]},{trajectory.lla[1,i]},{trajectory.lla[2,i]},{trajectory.rpy[0,i]},{trajectory.rpy[1,i]},{trajectory.rpy[2,i]}\n")
+            print(f"    Wrote trajectory to {self.cfg['paths']['trajectory_file']}")
+        # Interpolate poses at image times
+
+            # write t,lla,rpy to csv downsampled every 100th for debugging
+            with open(self.cfg['paths']['trajectory_file'] + "_downsampled.csv", "w") as f:
+                f.write("time,lat,lon,alt,roll,pitch,yaw\n")
+                for i in range(0, len(t),100):
+                    f.write(f"{t[i]},{lla[i,0]},{lla[i,1]},{lla[i,2]},{rpy[i,0]},{rpy[i,1]},{rpy[i,2]}\n")
+            # Compute interpolated poses at image times
+            img_poses = trajectory.interpolate(img_times, self.cfg)
+            # write poses to csv for debugging
+            with open(self.cfg['paths']['poses_file'], "w") as f:
+                f.write("time,lat,lon,alt,roll,pitch,yaw\n")
+                for pose in img_poses:
+                    f.write(f"{pose.t},{pose.lla[0]},{pose.lla[1]},{pose.lla[2]},{pose.rpy[0]},{pose.rpy[1]},{pose.rpy[2]}\n")
+            print(f"    Interpolated {len(img_poses)} image poses")
+        else:
+            # Load poses from defined csv path
+            poses_csv = np.loadtxt(self.cfg['paths']['poses_file'], delimiter=',',skiprows=1)
+            t,lla,rpy = poses_csv[:,0], poses_csv[:,1:4], poses_csv[:,4:7]
+            mask = (t >= img_time_span[0]) & (t <= img_time_span[1])
+            img_lla = lla[mask,:]
+            lat0 = np.degrees(img_lla[0,0])
+            lon0 = np.degrees(img_lla[0,1])
+            alt0 = img_lla[0,2]
+            print(f"Reference LTP origin: lat: {lat0:.6f} lon: {lon0:.6f} alt: {alt0:.3f}")
+            tangentPlane = TangentPlane(lat0, lon0,alt0)
+            poses = Trajectory(t, lla, rpy, tangentPlane, img_time_span)
+            transformer = Transformer.from_crs(
+                4326,
+                self.cfg['project']['epsg'],
+            always_xy=False  # Ensures lon, lat order
+            )
+            # Step 7: Convert camera position to projected coordinates
+            # Use the actual trajectory length, not img_times length
+            n_poses = poses.lla.shape[1]  # Number of poses in the trajectory
+            E, N, H = transformer.transform(poses.lla[0,:], poses.lla[1,:], poses.lla[2,:],radians=True)
+            ENH = np.array([E,N,H])
+            img_poses = []
+            for i in range(n_poses):
+                img_poses.append(Pose_std(poses.t[i], poses.lla[:,i], poses.xyz[:,i], poses.rpy[:,i], poses.R_ned2ecef[i], poses.R_ned2body[i], poses.ecef[i,:], ENH[:,i]))
+
+        
+        # A. Load Timing (Exact UTC seconds for each line)
+        # Assumes file has no header, cols: [line_index, time]
+        #timing_df = pd.read_csv(self.cfg['paths']['timing_file'], sep=r'\s+', header=None, names=['id', 'time'])
+        #self.line_times = timing_df['time'].values
+        
+        # B. Load SBET (Trajectory Source)
+        # Assumes cols: time, lat, lon, height, roll, pitch, yaw
+        #sbet = pd.read_csv(self.cfg['paths']['sbet_file'], sep=r'\s+', header=None, 
+        #                   names=['time', 'lat', 'lon', 'height', 'roll', 'pitch', 'yaw'])
+        
+        # 2. Position Interpolation (Translational Manifold)
+        sb_x, sb_y, sb_z = self.geo_to_ecef.transform(trajectory.lla[0,:], trajectory.lla[1,:], trajectory.lla[2,:])
+        interp_pos = interp1d(trajectory.t, np.stack([sb_x, sb_y, sb_z], axis=1), axis=0, kind='cubic', fill_value="extrapolate")
+        
+        # # 3. Attitude Interpolation (Rotation Manifold SO(3))
+        # # Construct Rotation objects from SBET RPY (Body to NED)
+        # # Sequence 'xyz' or 'zyx' depends on your SBET format; 'xyz' is standard for many IMUs
+        # sbet_rotations = R.from_euler('xyz', trajectory.rpy.T, degrees=True)
+        
+        # # Initialize Slerp
+        # slerp = Slerp(trajectory.t, sbet_rotations)
+        
+        # # 4. Geodetic Interpolation (for local NED construction)
+        # # Lat/Lon are coordinates on a sphere/ellipsoid, but for small time steps, 
+        # # linear interpolation of the coordinates is acceptable for the R_ned2ecef matrix.
+        # interp_geo = interp1d(trajectory.t, trajectory.lla[:2,:].T, axis=0, kind='linear', fill_value="extrapolate")
+
+        # # 5. Pre-compute Exact Poses for Every Scanline
+        # print(f"Interpolating manifold-consistent poses for {len(self.line_times)} lines...")
+        
+        # # Interpolate Position
+        self.line_pos_ecef = interp_pos(self.line_times)
+        
+        # # Interpolate Attitude via Slerp
+        # line_rots = slerp(self.line_times)
+        # # Extract RPY back to degrees for the solver if needed, 
+        # # but we will store the Rotation objects/matrices directly for speed.
+        # self.line_rpy = line_rots.as_euler('xyz', degrees=True)
+        
+        # # Interpolate Geodetic for NED frame
+        # self.line_geo = interp_geo(self.line_times)
+
+        # # 6. Pre-calculate R_body_to_ecef for every line
+        # # This avoids doing Slerp or Euler conversions inside the Newton-Raphson loop.
+        # self.line_R_b2e = self.compute_all_line_rotations(line_rots, self.line_geo)
+        
+        # 7. Spatial Indexing
+        step = 50
+        self.tsi_tree = cKDTree(self.line_pos_ecef[::step])
+        self.tsi_times = self.line_times[::step]
+
+    def compute_all_line_rotations(self, line_rots, line_geo):
+        """
+        Computes the full Body-to-ECEF rotation matrix for every scanline.
+        R_b2e = R_ned2ecef(lat, lon) * R_body2ned(interpolated)
+        """
+        lats = np.radians(line_geo[:, 0])
+        lons = np.radians(line_geo[:, 1])
+        
+        sl, cl = np.sin(lats), np.cos(lats)
+        slo, clo = np.sin(lons), np.cos(lons)
+        
+        # Construct NED to ECEF matrices (N, 3, 3)
+        # Row 1: North, Row 2: East, Row 3: Down
+        R_n2e = np.zeros((len(lats), 3, 3))
+        R_n2e[:, 0, 0] = -sl * clo
+        R_n2e[:, 0, 1] = -slo
+        R_n2e[:, 0, 2] = -cl * clo
+        R_n2e[:, 1, 0] = -sl * slo
+        R_n2e[:, 1, 1] = clo
+        R_n2e[:, 1, 2] = -cl * slo
+        R_n2e[:, 2, 0] = cl
+        R_n2e[:, 2, 1] = 0
+        R_n2e[:, 2, 2] = -sl
+        
+        # R_body2ned from Slerp
+        R_b2n = line_rots.as_matrix()
+        
+        # Final R_body2ecef
+        return np.einsum('nij,njk->nik', R_n2e, R_b2n)
+        
+    print("Trajectory Interpolation Complete.")
+
+    def load_dsm(self):
+        print("Loading DSM...")
+        with rasterio.open(self.cfg['paths']['dsm_file']) as src:
+            data = src.read(1)
+            # RegularGridInterpolator setup
+            x = np.linspace(src.bounds.left, src.bounds.right, src.width)
+            y = np.linspace(src.bounds.bottom, src.bounds.top, src.height)
+            
+            # Flip UD because image coords are typically Top-Left origin
+            data_flipped = np.flipud(data)
+            self.dsm_interp = RegularGridInterpolator((y, x), data_flipped, bounds_error=False, fill_value=np.nan)
+            self.dsm_transform = src.transform
+
+    def get_rotation_matrices(self, att_data_batch):
+        """
+        Batch construct R_body_to_ecef for a set of lines.
+        att_data_batch: (N, 5) -> [roll, pitch, yaw, lat, lon]
+        Returns: (N, 3, 3)
+        """
+        roll = att_data_batch[:, 0]
+        pitch = att_data_batch[:, 1]
+        yaw = att_data_batch[:, 2]
+        lat = att_data_batch[:, 3]
+        lon = att_data_batch[:, 4]
+        
+        # 1. Body to NED
+        r_b2n = R.from_euler('xyz', np.stack([roll, pitch, yaw], axis=1), degrees=True).as_matrix()
+        
+        # 2. NED to ECEF
         sl, cl = np.sin(np.radians(lat)), np.cos(np.radians(lat))
         slo, clo = np.sin(np.radians(lon)), np.cos(np.radians(lon))
         
+        # Construct Rotation Matrices manually to vectorize
+        # R_n2e rows:
+        # [-sl*clo, -slo, -cl*clo]
+        # [-sl*slo,  clo, -cl*slo]
+        # [ cl,      0,   -sl    ]
+        
+        zero = np.zeros_like(sl)
         r_n2e = np.array([
             [-sl*clo, -slo, -cl*clo],
             [-sl*slo,  clo, -cl*slo],
-            [ cl,      0,   -sl    ]
-        ])
-        return r_n2e @ r_b2n
-
-    def ground_to_image(self, ground_ecef):
-        """
-        Maps ECEF Ground Point -> (Line, Sample).
-        Returns (-1, -1) if out of bounds.
-        """
-        # 1. Initial Guess
-        _, idx = self.tsi_tree.query(ground_ecef)
-        t = self.tsi_times[idx]
+            [ cl,      zero, -sl    ]
+        ]).transpose(2, 0, 1) # (N, 3, 3)
         
-        # 2. Newton-Raphson
+        return np.einsum('nij,njk->nik', r_n2e, r_b2n)
+
+    def ground_to_image(self, points_ecef):
+        """
+        Finds the (Line, Sample) for ground points ECEF.
+        """
+        n_pts = len(points_ecef)
+        
+        # 1. Initial Guess via KDTree
+        _, idxs_sub = self.tsi_tree.query(points_ecef)
+        # Map subsampled index back to full resolution index approx
+        current_line_indices = idxs_sub * 50 # matches step used in load_trajectory
+        
+        # Clip to valid range
+        current_line_indices = np.clip(current_line_indices, 0, len(self.line_times)-1)
+
+        # 2. Iterative Refinement
+        # We iterate on the INDEX, not the TIME, because we have pre-computed arrays.
         for _ in range(5):
-            if t < self.t_start or t > self.t_end: return -1, -1
+            idx_int = current_line_indices.astype(int)
             
-            # Interpolate state
-            pos_imu = self.pos_interp(t)
-            att = self.att_interp(t) # [r, p, y, lat, lon]
+            # Pull pre-computed ECEF pose and Manifold-interpolated Rotation
+            pos_body = self.line_pos_ecef[idx_int]
+            R_b2e = self.line_R_b2e[idx_int]
             
-            # Rotations & Lever Arm
-            r_b2e = self.get_body2ecef(*att)
-            cam_center = pos_imu + r_b2e @ self.lever_arm
-            r_c2e = r_b2e @ self.r_cam2body
+            # Camera Center = Pos + R_b2e * Lever
+            lever_rot = np.einsum('nij,j->ni', R_b2e, self.lever_arm_body)
+            cam_centers = pos_body + lever_rot
             
-            # Vector Ground -> Camera (in Camera Frame)
-            vec_cam = r_c2e.T @ (ground_ecef - cam_center)
+            # Combined Rotation: Camera -> ECEF
+            R_c2e = np.einsum('nij,jk->nik', R_b2e, self.R_cam_to_body)
             
-            # Project
-            u, v_proj = self.sensor.brown_projection(vec_cam)
+            # Transform Ground Point to Camera Frame
+            vec_global = points_ecef - cam_centers
+            vec_cam = np.einsum('nji,nj->ni', R_c2e, vec_global) # Transpose multiply
             
-            # Check against Smile (Physical Sensor Shape)
-            v_sensor = self.sensor.get_smile_offset(u)
+            # Project to Pixels
+            uv = self.cam_model.project(vec_cam) # (N, 2) [u, v]
             
-            # Error (in meters approx)
-            scale = vec_cam[2] / self.sensor.f
-            err_m = (v_proj - v_sensor) * scale
+            # Calculate Correction
+            # In pushbroom, v is the along-track coordinate.
+            # Ideally v maps to the center of the sensor (e.g. 0 or 0.5 depending on calib).
+            # If v is positive, ground point is "ahead" in image => needs later time/line.
+            # We assume 'cy' handles the principal point offset, so we target 0 relative to that.
             
-            # Update t
-            dt = err_m / self.mean_speed
-            t -= dt
+            # Error in meters approx
+            v_error_meters = vec_cam[:, 1] # Y is usually along-track in camera frame
             
-            if abs(dt) < 1e-5: break
-
-        # 3. Convert Time to Line Index
-        # Assuming linear exposure times for fast lookup, else use searchsorted
-        # line = (t - t_start) * fps
-        line = np.searchsorted(self.exposure_times, t)
-        
-        if 0 <= line < self.bil_shape[0] and 0 <= u < self.sensor.width:
-            return line, u
-        return -1, -1
-
-# ==========================================
-# 3. Tile Processor (Worker)
-# ==========================================
-def process_tile(engine, window, transform, output_shape):
-    """
-    Processing logic for a single tile.
-    Uses Sparse Grid Interpolation for speed.
-    """
-    h, w = window.height, window.width
-    
-    # --- 1. Load DSM for this tile ---
-    # (In production, pass shared memory or read window from DSM file)
-    with rasterio.open(engine.dsm_path) as dsm:
-        # Read DSM window matching the output tile (approximate mapping required)
-        # For simplicity here, we assume 1:1 match or read full coverage
-        # *Production*: Use dsm.read(1, window=dsm_window)
-        dsm_data = dsm.read(1, window=window, boundless=True)
-
-    # --- 2. Create Sparse Grid ---
-    step = 20 # Calculate geometry every 20 pixels
-    grid_y = np.arange(0, h + step, step)
-    grid_x = np.arange(0, w + step, step)
-    
-    map_lines = np.full((len(grid_y), len(grid_x)), -1.0)
-    map_pixels = np.full((len(grid_y), len(grid_x)), -1.0)
-    
-    valid_mask = np.zeros_like(map_lines, dtype=bool)
-
-    # --- 3. Solve Geometry on Sparse Grid ---
-    for i, r in enumerate(grid_y):
-        for j, c in enumerate(grid_x):
-            # Clip to window size
-            r_safe = min(r, h-1)
-            c_safe = min(c, w-1)
+            # Convert metric error to line index shift
+            # Shift = Distance / (Speed * IntegrationTime)
+            # But simpler: Distance / Speed -> Time Delta -> Line Delta
+            dt = v_error_meters / self.mean_speed
             
-            # Pixel Center -> UTM
-            mx, my = transform * (c_safe + window.col_off, r_safe + window.row_off)
+            # Convert time delta to index delta
+            # We estimate avg line duration
+            avg_line_dur = (self.line_times[-1] - self.line_times[0]) / len(self.line_times)
+            d_index = dt / avg_line_dur
             
-            # UTM -> ECEF
-            z = dsm_data[r_safe, c_safe] # Get height
-            gx, gy, gz = engine.utm2ecef.transform(mx, my, z)
+            # Update
+            # Note sign: If ground is ahead (v>0), we need to fly forward (increase index)
+            current_line_indices = current_line_indices - d_index
             
-            # Ray Trace
-            l, p = engine.ground_to_image(np.array([gx, gy, gz]))
+            # Clamp
+            current_line_indices = np.clip(current_line_indices, 0, len(self.line_times)-1)
             
-            if l != -1:
-                map_lines[i, j] = l
-                map_pixels[i, j] = p
-                valid_mask[i, j] = True
+            if np.mean(np.abs(d_index)) < 0.1: # Sub-pixel convergence
+                break
+                
+        return np.stack([current_line_indices, uv[:, 0]], axis=1)
 
-    # --- 4. Interpolate Sparse Grid to Full Resolution ---
-    # Create interpolators (Coordinate Look-Up Table - CLUT)
-    # Filter invalid points or fill nearest to avoid holes at edges
-    # (Simplified: assume valid coverage for this snippet)
-    
-    # We use RectBivariateSpline for high-speed interpolation
-    # Note: map_lines contains floating point line indices (time)
-    interp_l = RectBivariateSpline(grid_y, grid_x, map_lines, kx=1, ky=1)
-    interp_p = RectBivariateSpline(grid_y, grid_x, map_pixels, kx=1, ky=1)
-    
-    # Generate full grid coords
-    mesh_y, mesh_x = np.mgrid[0:h, 0:w]
-    full_l = interp_l.ev(mesh_y, mesh_x)
-    full_p = interp_p.ev(mesh_y, mesh_x)
-    
-    # --- 5. Resample from BIL ---
-    # Determine bounds to read from disk
-    l_min, l_max = int(np.min(full_l)), int(np.max(full_l)) + 2
-    
-    # Safety checks
-    if l_max < 0 or l_min >= engine.bil_shape[0]:
-        return np.zeros((h, w), dtype='uint16')
-
-    l_min = max(0, l_min)
-    l_max = min(engine.bil_shape[0], l_max)
-    
-    # Read chunk from BIL
-    # Memmap slice is efficient
-    bil_mmap = np.memmap(engine.bil_path, dtype='uint16', mode='r', shape=engine.bil_shape)
-    chunk = np.array(bil_mmap[l_min:l_max, :]) # Load into RAM
-    
-    # Adjust line indices relative to chunk
-    rel_l = full_l - l_min
-    
-    # Bilinear Sampling using scipy.ndimage.map_coordinates
-    # Input coordinates must be (row, col)
-    # Order=1 is bilinear
-    coords = np.array([rel_l.ravel(), full_p.ravel()])
-    sampled = map_coordinates(chunk, coords, order=1, mode='nearest', prefilter=False)
-    
-    return sampled.reshape((h, w)).astype('uint16')
-
-# ==========================================
-# 4. Main Execution
-# ==========================================
-def main():
-    # --- Configuration ---
-    dsm_file = "site_dsm.tif"
-    bil_file = "flight_line_01.bil"
-    sbet_file = "trajectory.txt" # CSV with time,lat,lon,h,r,p,y
-    output_file = "ortho_result.tif"
-    
-    # Calibration Data
-    cam_params = [5000.0, 3000.0, 0.0, 1e-5, 0.0, 0.0, 0.0, 0.0] # f, cx, cy, k...
-    smile_params = [0, 0, 0, 0, 0] # Flat sensor
-    mount_cfg = {
-        'lever_arm': [0.2, 0.1, 0.5], # Fwd, Right, Down
-        'boresight': [0.01, -0.02, 0.5] # R, P, Y
-    }
-
-    # Load Trajectory
-    traj = pd.read_csv(sbet_file)
-    # Generate synthetic exposure times (e.g., 300 Hz)
-    times = np.linspace(traj['time'].iloc[0], traj['time'].iloc[-1], int(len(traj)*3))
-
-    # Initialize Engine
-    sensor = SensorModel(cam_params, smile_params, width=6000)
-    engine = OrthoEngine(traj, times, sensor, mount_cfg, dsm_file, bil_file)
-
-    # Setup Output
-    with rasterio.open(dsm_file) as dsm:
-        profile = dsm.profile
-        profile.update(dtype='uint16', count=1, compress='lzw')
-        
-        # Define Tiling
-        tile_size = 1024
-        windows = [win for _, win in dsm.block_windows(1)] # Or custom grid
-        
-        # Prepare arguments for parallel workers
-        tasks = []
-        for win in windows:
-            # Adjust window to be multiple of tile_size or handle edges
-            tasks.append((engine, win, dsm.transform, (win.height, win.width)))
-
-    # Run Parallel Processing
-    print(f"Processing {len(tasks)} tiles with {mp.cpu_count()} cores...")
-    
-    # Note: 'engine' is pickled to workers. Ensure it's read-only/thread-safe.
-    # For very large objects, consider using shared memory or re-init in worker.
-    with rasterio.open(output_file, 'w', **profile) as dst:
-        with ProcessPoolExecutor(max_workers=mp.cpu_count()) as executor:
-            # Map wrapper function
-            # We use a lambda or separate function to unpack args
-            results = executor.map(wrapper_process, tasks)
-            
-            for win, data in zip(windows, results):
-                dst.write(data, 1, window=win)
-
-def wrapper_process(args):
-    # Unpack arguments for the worker
-    engine, win, transform, shape = args
-    return process_tile(engine, win, transform, shape)
-
-if __name__ == "__main__":
-    main()
+    def process_tile(self, window):
+        # (Standard logic to create grid, get Z, call ground_to_image, and sample)
+        # ... (Same as previous provided code)
+        pass

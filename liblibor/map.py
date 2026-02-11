@@ -116,11 +116,18 @@ class Trajectory:
             for i in range(len(timestamps)):
                 rpy_interp[i,:] = rpy_from_R_ned2b(self.R_ned2body[i], as_degrees=False)
         else:
-            rpy_interp = self.R_ned2body.as_euler('xyz', degrees=False).T
+            slerp_ned2b = Slerp(self.t, self.R_ned2body)
+            slerp_ned2e =Slerp(self.t, self.R_ned2ecef)
+            # Interpolate Attitude via Slerp
+            Rned2body_interp = slerp_ned2b(timestamps)
+            Rned2ecef_interp = slerp_ned2e(timestamps)
+            # Extract RPY back to degrees for the solver if needed, 
+            # but we will store the Rotation objects/matrices directly for speed.
+            rpy_interp = Rned2body_interp.as_euler('xyz', degrees=False).T
 
         poses = []
         for i in range(len(timestamps)):
-            poses.append(Pose_std(timestamps[i], lla_interp[i,:], xyz_interp[i,:],rpy_interp[i,:],self.R_ned2ecef[i], self.R_ned2body[i],ecef_interp[i,:], ENH_interp[:,i]))
+            poses.append(Pose_std(timestamps[i], lla_interp[i,:], xyz_interp[i,:],rpy_interp[i,:],Rned2ecef_interp[i], Rned2body_interp[i],ecef_interp[i,:], ENH_interp[:,i]))
 
         return poses
     
