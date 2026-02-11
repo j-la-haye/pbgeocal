@@ -387,7 +387,7 @@ class PyProjTransformer:
     def _setup_height_transformer(self, config: Config):
         """Setup height transformation from LN02 to ellipsoidal heights."""
         # LN02 uses the CHGeo2004 geoid model
-        # EPSG:5729 is LN02 (Swiss vertical datum)
+        # EPSG:5728 is LN02 (Swiss vertical datum)
         try:
             # Create a compound CRS for proper 3D transformation
             # LV95 + LN02 -> WGS84 3D
@@ -398,7 +398,7 @@ class PyProjTransformer:
                 name="LV95 + LN02",
                 components=[
                     CRS.from_epsg(2056),  # LV95 (horizontal)
-                    CRS.from_epsg(5729)   # LN02 (vertical)
+                    CRS.from_epsg(5728)   # LN02 (vertical)
                 ]
             )
             

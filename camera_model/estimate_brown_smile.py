@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 from scipy.optimize import least_squares
+from estimate_brown_model import compute_focal_length, compute_F_len
+from bisect import bisect_left
 
 def brown_projection(params_lens, theta_x, theta_y):
     """
@@ -64,6 +66,15 @@ if __name__ == "__main__":
     pixels = np.arange(len(df))
     theta_x = df['across_track_angle'].values
     theta_y = df['along_track_angle'].values
+    # compute fov from min + max theta_x
+    FOV_measured = np.max(theta_x) - np.min(theta_x)
+
+
+    f_est_1 = compute_focal_length(FOV_measured, len(pixels))
+    cx_est = bisect_left(theta_x, 0) + 0.5 
+    f_est_3, cx_est_3 = compute_F_len(theta_x, pixels)
+    print(f"Estimated Focal Length from FOV: {f_est_1:.2f} pixels")
+    print(f"Estimated Focal Length from Linear Fit: {f_est_3:.2f} pixels")
     
     # Normalize pixel index for stable polynomial fitting
     u_norm = (pixels - np.mean(pixels)) / np.std(pixels)
@@ -71,7 +82,7 @@ if __name__ == "__main__":
     # Initial Guesses
     # Lens: [f, cx, cy, k1, k2, k3, p1, p2]
     # Note: cy and s0 are correlated (vertical shift). The optimizer will distribute them.
-    x0_lens = [1750.0, 650.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    x0_lens = [f_est_3, cx_est_3, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     
     # Smile: [s0, s1, s2, s3, s4]
     x0_smile = [0.0, 0.0, 0.0, 0.0, 0.0]

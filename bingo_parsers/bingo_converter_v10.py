@@ -329,7 +329,7 @@ if __name__ == "__main__":
     
     #root_dir = "."  # Current directory, change this to your data directory
     root_dir = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/steviapp_proj/LandMarks/raw/unrectified/UVT"
-    checkpoint_file = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/DSM_check_points/DEM_GCP.csv"  # Path to checkpoint file with ECEF coordinates
+    checkpoint_file = "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/GCPs/clmbr_tie_points_gcp_swiss_image_ss3d_wgs84.csv"  # Path to checkpoint file with ECEF coordinates
     
     output_bingo = Path(root_dir) / 'bingo.txt'
     output_timing = Path(root_dir) / 'image_timestamps.txt'

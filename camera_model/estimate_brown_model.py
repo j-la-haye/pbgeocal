@@ -22,7 +22,8 @@ def compute_F_len(angles_deg, pixels):
     """
     # 1. Prepare Data
     theta = np.deg2rad(angles_deg)
-    u = np.array(pixels)
+    u = np.array(range(len(pixels)))  # Assuming pixel indices are 0, 1, 2, ..., N-1
+    #u = np.array(pixels)
 
     # 2. Linearize the problem
     # Model: u = f * tan(theta) + cx
@@ -226,7 +227,7 @@ if __name__ == "__main__":
     # plt.show()  
 
       # Exclude edges
-    FOV = 40.2 # degrees
+    FOV = 40.28 # degrees
     pixels_measured = px[valid_indices]
     xt_obs = angles[valid_indices]
     # save xt_obs to csv
@@ -239,13 +240,13 @@ if __name__ == "__main__":
     f_est_1 = compute_focal_length(FOV_measured, num_pixels)
     cx_est = bisect_left(xt_obs, 0) + 0.5 
     #f_est_2 = calculate_focal_length(pixels_measured, angles_measured, ppx=num_pixels/2, image_width=num_pixels)
-    f_est_3,cx_est = compute_F_len(xt_obs, pixels_measured)
+    f_est_3,cx_est_3 = compute_F_len(xt_obs, pixels_measured)
     print(f"Estimated Focal Length from FOV: {f_est_1:.2f} pixels")
     print(f"Estimated Focal Length from Linear Fit: {f_est_3:.2f} pixels")
     
     # True Parameters (to see if we can recover them)
-    f_true = f_est_1
-    cx_true = cx_est
+    f_true = f_est_3
+    cx_true = cx_est_3
     k1_true = -0.02 # Barrel distortion
     p1_true = 0.001 # Slight tangential
     
@@ -256,15 +257,15 @@ if __name__ == "__main__":
     
     # Adding inverse distortion approximation to generate synthetic "observed angles"
     # (Simplified for data generation purposes)
-    r2 = x_normalized**2
-    x_distorted = x_normalized * (1 + k1_true * r2) 
+    # r2 = x_normalized**2
+    # x_distorted = x_normalized * (1 + k1_true * r2) 
     
     # Synthetic Across-track angles (theta_x)
-    angles_x_obs = np.rad2deg(np.arctan(x_distorted))
+    # angles_x_obs = np.rad2deg(np.arctan(x_distorted))
     
     # Synthetic Along-track angles (theta_y) - "Smile" effect
     # Usually a function of x, e.g., bowing at the edges
-    angles_y_obs = 0.05 * (x_normalized**2) # Parabolic smile in degrees
+    # angles_y_obs = 0.05 * (x_normalized**2) # Parabolic smile in degrees
 
     # Along-track fit from DLR measurements
     # v = a * x^2 + b * x + c

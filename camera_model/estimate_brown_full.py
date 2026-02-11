@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 from scipy.optimize import least_squares
+from estimate_brown_model import compute_focal_length, compute_F_len
+from bisect import bisect_left
 
 def brown_model_full(params, theta_x, theta_y):
     """
@@ -41,9 +43,17 @@ df = pd.read_csv("/media/addLidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_D
 pixels_x = np.arange(len(df))
 across = df['across_track_angle'].values
 along = df['along_track_angle'].values
+FOV_measured = np.max(across) - np.min(across)
+
+
+f_est_1 = compute_focal_length(FOV_measured, len(pixels_x))
+cx_est = bisect_left(across, 0) + 0.5 
+f_est_3, cx_est_3 = compute_F_len(across, pixels_x)
+print(f"Estimated Focal Length from FOV: {f_est_1:.2f} pixels")
+print(f"Estimated Focal Length from Linear Fit: {f_est_3:.2f} pixels")
 
 # Initial Guess (Include cy)
-x0 = [1750, 650, 0, 0, 0, 0, 0, 0] 
+x0 = [f_est_3, cx_est_3, 0, 0, 0, 0, 0, 0] 
 
 res = least_squares(objective, x0, args=(across, along, pixels_x), method='lm')
 
