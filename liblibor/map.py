@@ -87,7 +87,7 @@ class Trajectory:
         
         transformer = Transformer.from_crs(
             4326,
-            cfg['project']['epsg'],
+            cfg['project']['epsg_out'],
         always_xy=False  # Ensures lon, lat order
         )
         # Step 7: Convert camera position to projected coordinates
@@ -113,17 +113,32 @@ class Trajectory:
         
         if customRPY:
             rpy_interp = np.empty((len(timestamps),3))
+            Rned2body_interp_matrices = np.empty((len(timestamps),3,3))
+            Rned2ecef_interp_matrices = np.empty((len(timestamps),3,3))
             for i in range(len(timestamps)):
-                rpy_interp[i,:] = rpy_from_R_ned2b(self.R_ned2body[i], as_degrees=False)
+                # Find closest indices for interpolation
+                idx = np.searchsorted(self.t, timestamps[i])
+                if idx >= len(self.t):
+                    idx = len(self.t) - 1
+                rpy_interp[i,:] = rpy_from_R_ned2b(self.R_ned2body[idx], as_degrees=False)
+                Rned2body_interp_matrices[i] = self.R_ned2body[idx]
+                Rned2ecef_interp_matrices[i] = self.R_ned2ecef[idx]
+            # Convert to Rotation objects for compatibility
+            Rned2body_interp = R.from_matrix(Rned2body_interp_matrices)
+            Rned2ecef_interp = R.from_matrix(Rned2ecef_interp_matrices)
         else:
-            slerp_ned2b = Slerp(self.t, self.R_ned2body)
-            slerp_ned2e =Slerp(self.t, self.R_ned2ecef)
+            # Convert rotation matrices to scipy Rotation objects
+            R_ned2body_rot = R.from_matrix(self.R_ned2body)
+            R_ned2ecef_rot = R.from_matrix(self.R_ned2ecef)
+            
+            slerp_ned2b = Slerp(self.t, R_ned2body_rot)
+            slerp_ned2e = Slerp(self.t, R_ned2ecef_rot)
             # Interpolate Attitude via Slerp
             Rned2body_interp = slerp_ned2b(timestamps)
             Rned2ecef_interp = slerp_ned2e(timestamps)
             # Extract RPY back to degrees for the solver if needed, 
             # but we will store the Rotation objects/matrices directly for speed.
-            rpy_interp = Rned2body_interp.as_euler('xyz', degrees=False).T
+            rpy_interp = Rned2body_interp.as_euler('xyz', degrees=False)
 
         poses = []
         for i in range(len(timestamps)):

@@ -1,9 +1,13 @@
+import yaml
 import numpy as np
 import rasterio
 from rasterio.transform import from_origin
-from pyproj import Transformer
+from rasterio.windows import Window
+from pyproj import Transformer, CRS
 from scipy.interpolate import interp1d, RegularGridInterpolator
 from scipy.spatial.transform import Rotation as R
+from scipy.spatial import cKDTree
+import pandas as pd
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 
@@ -93,6 +97,68 @@ class OrthoEngine:
         # (Implementation omitted for brevity: involves nested loops or vectorized blocks)
         pass
 
+    def process_tile(self, window):
+        """
+        Process a single output tile.
+        """
+        # 1. Create Output Grid
+        transform = self.dsm_transform # Use DSM grid or define new Ortho grid
+        # For simplicity, using DSM grid definition for output
+        
+        x_off, y_off = window.col_off, window.row_off
+        w, h = window.width, window.height
+        
+        # Grid Coordinates
+        xs = np.arange(x_off, x_off + w) * transform.a + transform.c
+        ys = np.arange(y_off, y_off + h) * transform.e + transform.f
+        xx, yy = np.meshgrid(xs, ys)
+        
+        # Flatten
+        flat_x = xx.ravel()
+        flat_y = yy.ravel()
+        
+        # 2. Get Z from DSM
+        # Note: RegularGridInterpolator takes (y, x)
+        flat_z = self.dsm_interp((flat_y, flat_x))
+        
+        # Filter NaNs
+        valid_mask = ~np.isnan(flat_z)
+        if not np.any(valid_mask):
+            return np.zeros((h, w), dtype='uint8')
+        
+        # 3. Convert valid pixels to ECEF
+        fx, fy, fz = flat_x[valid_mask], flat_y[valid_mask], flat_z[valid_mask]
+        ecef_x, ecef_y, ecef_z = self.local_to_ecef.transform(fx, fy, fz)
+        pts_ecef = np.stack([ecef_x, ecef_y, ecef_z], axis=1)
+        
+        # 4. Solve Geometry
+        # Returns (Line, Sample)
+        img_coords = self.ground_to_image(pts_ecef)
+        
+        # 5. Sampling (Nearest Neighbor for speed in this demo)
+        lines = np.round(img_coords[:, 0]).astype(int)
+        samps = np.round(img_coords[:, 1]).astype(int)
+        
+        # Boundary Checks
+        H_img, W_img = self.img_shape
+        in_bounds = (lines >= 0) & (lines < H_img) & (samps >= 0) & (samps < W_img)
+        
+        # 6. Fill Output Array
+        out_flat = np.zeros(len(flat_x), dtype='uint16')
+        
+        # Fetch pixels (Vectorized fetch only works if image is in RAM, 
+        # for memmap it's slow with random access. 
+        # *Optimization*: In production, sort indices or read blocks.)
+        if self.img_data is not None:
+             valid_indices = np.where(valid_mask)[0][in_bounds]
+             # This step is the bottleneck with memmap. 
+             # For true speed, we would iterate over blocks of the Input Image.
+             # Here we accept random access overhead.
+             vals = self.img_data[lines[in_bounds], samps[in_bounds]]
+             out_flat[valid_indices] = vals
+             
+        return out_flat.reshape(h, w)
+
 def main_pipeline():
     # Setup parallel processing
     num_workers = mp.cpu_count()
@@ -101,3 +167,29 @@ def main_pipeline():
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         # Map process_tile across all windows
         pass
+
+# ==========================================
+# 3. Main Entry Point
+# ==========================================
+def main():
+    config_path = "config.yaml"
+    pipeline = OrthoEngine(config_path)
+    
+    # Define Output Window (Whole DSM or Tiles)
+    # Example: Process center 1000x1000 crop
+    w = Window(col_off=0, row_off=0, width=1000, height=1000)
+    
+    # Run
+    print("Processing Tile...")
+    result = pipeline.process_tile(w)
+    
+    # Save
+    with rasterio.open(pipeline.cfg['paths']['output_ortho'], 'w', 
+                       driver='GTiff', height=w.height, width=w.width, 
+                       count=1, dtype='uint16', crs=pipeline.dsm_src.crs, 
+                       transform=pipeline.dsm_transform) as dst:
+        dst.write(result, 1)
+    print("Done.")
+
+if __name__ == "__main__":
+    main()

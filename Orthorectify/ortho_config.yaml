@@ -2,33 +2,42 @@ project:
   name: "Clmbier_Cal_test_3D_Checkpoints"
   epsg_out: 4979  # Output CRS (e.g. UTM)
   epsg_dsm: 4979  # DSM CRS
-  
+
+processing:
+  num_cores: 4  # Set to the number of physical cores you want to use
+  block_size: 512 # Size of the processing tile (e.g., 512x512)
+
 paths:
   # Input Data
-  dsm_file: "/path/to/dsm.tif"
-  image_file: "/path/to/image.bil"  # Raw binary image
+  dsm_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/wgs84/DSM_converted_ss3d/DSM_mosaic_M024_Clbr_L3_6_wgs84_ellipsoid_reframe.tif"
+  image_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.bil"  # Raw binary image
   
   # Trajectory & Timing
-  timing_file: "/path/to/image_timestamps.txt" # Cols: line_idx, time
-  sbet_file: "/path/to/sbet.out"               # Cols: time, lat, lon, height, roll, pitch, yaw
-  output_ortho: "/path/to/output_ortho.tif"
-
+  timing_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/" # Cols: line_idx, time
+  sbet_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/SBET_Clmbr_Cal_ODyN_v8.out"               # Cols: time, lat, lon, height, roll, pitch, yaw
+  output_ortho: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/Orthos/L5/L5_rgb_ortho.tif"
+  trajectory_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/l5_trajectory.csv"  # Optional: Pre-interpolated trajectory for faster loading
+  poses_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/l5_image_poses.csv"  # Optional: Interpolated image poses for debugging
 camera:
-  focal_length_px: 1697.41 
-  principal_point: [0, 0]  # cx, cy (relative to center usually, or absolute)
-  image_size: [6000, 1]    # width, height (Linear Array)
+  focal_length_px: 1796.753 
+  principal_point: [8.5, 0.385]  # cx, cy (relative to center usually, or absolute)
+  image_size: [1240, 1]    # width, height (Linear Array)
   
   # Distortion coefficients (Brown-Conrady)
-  k: [0.0, 0.0, 0.0] # k1, k2, k3
-  p: [0.0, 0.0]      # p1, p2
+  k: [-0.396332, 0.180911, 1.0] # k1, k2, k3
+  p: [-0.001132, -0.184947]      # p1, p2
 
 mounting:
   # Physical offset from IMU center to Camera center in Body Frame (meters)
-  lever_arm: [0.076, -0.290324, -0.10]
+  lever_arm: [-0.05493, 0.25697, 0.26223]
   
-  # Nominal rotation to align Body frame with Camera Frame (Degrees)
-  # [0, 0, -90] maps Body X->Forward to Camera X->Right
-  nominal_mount_rpy_deg: [-0.3498567, -2.3453207, -92.3105917]
+  # Mounting Matrix: Flattened 3x3 rotation matrix (Row-Major)
+  # This aligns the Body Frame to the Camera Frame.
+  # Example: Identity Matrix
+  mounting_matrix: [0, -1, 0, 
+                    1, 0, 0, 
+                    0, 0, 1]
   
-  # Small calibration corrections (Radians)
-  boresight_rpy_rad: [0.0, 0.0, 0.0]
+  # Boresight Misalignment (Degrees)
+  # Small corrections applied AFTER the mounting matrix
+  boresight_rpy_deg: [-0.304, 3.275, 0.367] # roll, pitch, yaw in degrees

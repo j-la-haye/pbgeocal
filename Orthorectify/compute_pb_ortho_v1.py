@@ -382,3 +382,64 @@ class OrthoPipeline:
         # (Standard logic to create grid, get Z, call ground_to_image, and sample)
         # ... (Same as previous provided code)
         pass
+    def process_tile(self, window):
+        """
+        Process a single output tile.
+        """
+        # 1. Create Output Grid
+        transform = self.dsm_transform # Use DSM grid or define new Ortho grid
+        # For simplicity, using DSM grid definition for output
+        
+        x_off, y_off = window.col_off, window.row_off
+        w, h = window.width, window.height
+        
+        # Grid Coordinates
+        xs = np.arange(x_off, x_off + w) * transform.a + transform.c
+        ys = np.arange(y_off, y_off + h) * transform.e + transform.f
+        xx, yy = np.meshgrid(xs, ys)
+        
+        # Flatten
+        flat_x = xx.ravel()
+        flat_y = yy.ravel()
+        
+        # 2. Get Z from DSM
+        # Note: RegularGridInterpolator takes (y, x)
+        flat_z = self.dsm_interp((flat_y, flat_x))
+        
+        # Filter NaNs
+        valid_mask = ~np.isnan(flat_z)
+        if not np.any(valid_mask):
+            return np.zeros((h, w), dtype='uint8')
+        
+        # 3. Convert valid pixels to ECEF
+        fx, fy, fz = flat_x[valid_mask], flat_y[valid_mask], flat_z[valid_mask]
+        ecef_x, ecef_y, ecef_z = self.local_to_ecef.transform(fx, fy, fz)
+        pts_ecef = np.stack([ecef_x, ecef_y, ecef_z], axis=1)
+        
+        # 4. Solve Geometry
+        # Returns (Line, Sample)
+        img_coords = self.ground_to_image(pts_ecef)
+        
+        # 5. Sampling (Nearest Neighbor for speed in this demo)
+        lines = np.round(img_coords[:, 0]).astype(int)
+        samps = np.round(img_coords[:, 1]).astype(int)
+        
+        # Boundary Checks
+        H_img, W_img = self.img_shape
+        in_bounds = (lines >= 0) & (lines < H_img) & (samps >= 0) & (samps < W_img)
+        
+        # 6. Fill Output Array
+        out_flat = np.zeros(len(flat_x), dtype='uint16')
+        
+        # Fetch pixels (Vectorized fetch only works if image is in RAM, 
+        # for memmap it's slow with random access. 
+        # *Optimization*: In production, sort indices or read blocks.)
+        if self.img_data is not None:
+             valid_indices = np.where(valid_mask)[0][in_bounds]
+             # This step is the bottleneck with memmap. 
+             # For true speed, we would iterate over blocks of the Input Image.
+             # Here we accept random access overhead.
+             vals = self.img_data[lines[in_bounds], samps[in_bounds]]
+             out_flat[valid_indices] = vals
+             
+        return out_flat.reshape(h, w)
