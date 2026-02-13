@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import rasterio
 from rasterio.windows import Window, bounds as window_bounds
+from rasterio.transform import from_origin
 from pyproj import Transformer
 from scipy.interpolate import interp1d, RegularGridInterpolator
 from scipy.spatial.transform import Rotation as R, Slerp
@@ -17,6 +18,9 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
+import rasterio
+from rasterio.sample import sample_gen
 
 # --- Global worker variable ---
 # This holds the pipeline instance for each process
@@ -116,6 +120,55 @@ class OrthoPipeline:
         
         print(f"Data ready: {self.n_lines} lines, {self.n_samples} samples, {self.n_bands} bands.")
 
+    from rasterio.transform import from_origin
+
+    def get_global_metadata(self):
+        """
+        Calculates the automated GSD, Global Transform, and total Image Dimensions.
+        """
+        # 1. Physical GSD calculation
+        # H = Height Above Ground, fx = Focal Length in Pixels
+        gsd = self.line_lla[:, 2].mean() / self.cam_model.fx
+        
+        # 2. Define Global Bounding Box from Trajectory
+        # We add a buffer to ensure the full swath is captured
+        buffer = 150 # meters
+        min_x = self.sbet_df['x'].min() - buffer
+        max_x = self.sbet_df['x'].max() + buffer
+        min_y = self.sbet_df['y'].min() - buffer
+        max_y = self.sbet_df['y'].max() + buffer
+        
+        # 3. Create the Transform Template (Master Grid)
+        # Origin is Top-Left (West, North)
+        transform_template = from_origin(min_x, max_y, gsd, gsd)
+        
+        # 4. Calculate Total Dimensions for the GeoTIFF
+        total_width = int(np.ceil((max_x - min_x) / gsd))
+        total_height = int(np.ceil((max_y - min_y) / gsd))
+        
+        return transform_template, gsd, total_width, total_height
+    
+    def get_optimal_transform(self, dsm_mean_ele, min_x, max_y):
+        """
+        Computes the transform based on the actual height of the drone.
+        sbet_subset: The portion of the trajectory corresponding to the current window/tile.
+        """
+        # 1. Compute average flight altitude from SBET (assuming 'z' or 'alt' column)
+        # Most SBETs are in Ellipsoid height; ensure dsm_mean_ele is in the same datum.
+        avg_flight_alt = self.line_lla[:, 2].mean()
+        
+        # 2. Calculate Height Above Ground (H)
+        H = avg_flight_alt - dsm_mean_ele
+        
+        # 3. Calculate Physical GSD
+        # Formula: GSD = H / focal_length_pixels
+        # This ensures the output grid matches the sensor's angular resolution.
+        gsd = H / self.cam_model.focal_length_px
+        
+        # 4. Create Transform
+        # [gsd, 0, min_x, 0, -gsd, max_y]
+        return from_origin(min_x, max_y, gsd, gsd), gsd
+    
     def setup_transforms(self):
         epsg_out = self.cfg['project'].get('epsg_out', 32632)
         print(f"Setting up transforms for EPSG:{epsg_out}")
@@ -138,6 +191,29 @@ class OrthoPipeline:
         
         diff = points - ref_point
         return diff @ R_ecef2enu.T
+    
+    def get_swath_mean_elevation(self, dsm_path):
+        """
+        Samples the DSM at each trajectory point to find the mean ground elevation
+        along the flight line.
+        """
+        # 1. Get trajectory points in the DSM's coordinate system
+        # Assuming self.trajectory is already in the projected CRS of the DSM
+        points = zip(self.trajectory['x'], self.trajectory['y'])
+        
+        elevations = []
+        with rasterio.open(dsm_path) as dsm:
+            # 2. Sample the DSM at every trajectory point
+            for val in dsm.sample(points):
+                # val is a list/array of values for each band (usually just 1 for DSM)
+                if val[0] != dsm.nodata:
+                    elevations.append(val[0])
+        
+        # 3. Return the average elevation of the terrain under the flight
+        if not elevations:
+            return 0.0  # Fallback if no points overlap
+            
+        return np.mean(elevations)
 
     # Inside visualize_geometry:
     # Replace: traj_local = self.line_pos_ecef - offset
@@ -510,6 +586,7 @@ class OrthoPipeline:
         self.line_pos_ecef = np.array([pose.ecef for pose in img_poses])
         self.line_geo = np.array([pose.lla[:2] for pose in img_poses]) # lat, lon for each line
         self.line_ENH = np.array([pose.ENH for pose in img_poses]) # ENH for each line
+        self.line_lla = np.array([pose.lla for pose in img_poses]) # lat, lon, alt for each line
 
         line_rots = np.array([pose.R_ned2b for pose in img_poses]) # Rotation from NED to Body for each line
         
@@ -937,59 +1014,53 @@ class OrthoPipeline:
                 
         return out_tile   
 
-    from rasterio.transform import from_origin
-    def process_tile(self, window):
+    def process_tile(self, window, transform_template):
+        # 1. Get world bounds of this window
+        left, bottom, right, top = window_bounds(window, transform_template)
         
-        # 1. Get the physical coordinates of the window's corners
-        transform = self.dsm_transform
-        left, bottom, right, top = window_bounds(window, self.dsm_transform)
-        # The transform is essentially: [GSD_x, Rotation, TopLeft_X, Rotation, -GSD_y, TopLeft_Y]
-        #print(f"Current GSD: {transform[0]}, {abs(transform[4])}")
+        # 2. Use the automated GSD to drive the grid
+        # This prevents the 'blown up' effect because the world-to-pixel
+        # ratio is now locked to the focal length (self.fx)
+        gsd = transform_template[0]
         
-        # 2. Generate DSM Grid matching the window size
-        # We use the window.width/height to ensure 1:1 pixel mapping
-        x_coords = np.linspace(left, right, window.width)
-        y_coords = np.linspace(top, bottom, window.height)
+        # 3. Generate the ground mesh at the Native GSD
+        # We use linspace over the bounds to match the window.width/height exactly
+        x_coords = np.linspace(left + gsd/2, right - gsd/2, window.width)
+        y_coords = np.linspace(top - gsd/2, bottom + gsd/2, window.height)
         grid_x, grid_y = np.meshgrid(x_coords, y_coords)
         
-        flat_x = grid_x.ravel()
-        flat_y = grid_y.ravel()
-        flat_z = np.zeros_like(flat_x) # Replace with DSM values if you have them
+        # 4. Project Grid -> ECEF
+        flat_x, flat_y = grid_x.ravel(), grid_y.ravel()
+        # Using the local swath mean for Z ensures the projection isn't shifted
+        flat_z = np.full_like(flat_x, self.mean_ground_alt)
         
-        # 3. Transform Local/Projected -> ECEF
         ecef_pts = np.stack(self.local_to_ecef.transform(flat_x, flat_y, flat_z), axis=1)
         
-        # 4. Project World Points -> Image Coordinates [Line, Sample]
-        # This now returns NaNs for anything outside the flight/sensor bounds
+        # 5. Project ECEF -> Image Indices [Line, Sample]
+        # This returns NaNs for anything out of view (No curtains!)
         img_coords = self.ground_to_image(ecef_pts)
         
-        # 5. Handle NaNs and Masking
-        valid_projection = ~np.isnan(img_coords).any(axis=1)
-        
-        # Initialize output tile (Bands, Height, Width)
+        # 6. Masking and Assignment
+        valid_mask = ~np.isnan(img_coords).any(axis=1)
         out_tile = np.zeros((self.n_bands, window.height, window.width), dtype=self.img_data.dtype)
         
-        if np.any(valid_projection):
-            # Extract valid image coordinates
-            l_idx = np.round(img_coords[valid_projection, 0]).astype(int)
-            s_idx = np.round(img_coords[valid_projection, 1]).astype(int)
+        if np.any(valid_mask):
+            # Extract and round valid indices
+            l_idx = np.round(img_coords[valid_mask, 0]).astype(int)
+            s_idx = np.round(img_coords[valid_mask, 1]).astype(int)
             
-            # Guard against index overflow
+            # Guard against edge-case rounding
             l_idx = np.clip(l_idx, 0, self.img_data.shape[0] - 1)
             s_idx = np.clip(s_idx, 0, self.img_data.shape[1] - 1)
             
-            # Identify which flat pixels in our tile are the ones we just found
-            valid_flat_indices = np.where(valid_projection)[0]
+            # Map 1D valid projection results to their 2D tile locations
+            valid_flat_indices = np.where(valid_mask)[0]
+            pixel_values = self.img_data[l_idx, s_idx, :] # [N, Bands]
             
-            # 6. Bulk Pixel Read
-            # img_data shape: [Lines, Samples, Bands]
-            pixel_data = self.img_data[l_idx, s_idx, :] 
-            
-            # 7. Assignment
             for b in range(self.n_bands):
-                band_layer = out_tile[b].ravel()
-                band_layer[valid_flat_indices] = pixel_data[:, b]
-                out_tile[b] = band_layer.reshape(window.height, window.width)
+                band_flat = out_tile[b].ravel()
+                band_flat[valid_flat_indices] = pixel_values[:, b]
+                out_tile[b] = band_flat.reshape(window.height, window.width)
                 
         return out_tile
                 

@@ -44,4 +44,5 @@ mounting:
   # Boresight Misalignment (Degrees)
   # Small corrections applied AFTER the mounting matrix
   boresight_rpy_deg: [0.275,3.304,  0.367] # roll, pitch, yaw in degrees
+  bore_new: [-0.36933933494171167, 3.264200462948184, -0.43115906128406944]
   #boresight_rpy_deg: [10.304,0.275,  0.367]

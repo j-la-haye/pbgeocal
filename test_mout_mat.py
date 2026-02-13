@@ -226,7 +226,8 @@ if __name__ == "__main__":
     #mount_path = "/media/addLidar/Projects/Lidar_Processing/0008_ITA-MonteIato_UZH_2025_AVIRIS4-1560II-SPO/01_EPFL_Proc/01_DN_Proc/250609_Montelato/ODyN_Results/VQ1560II_Lidar1-mount_opt.4x4"   # <-- your file name here
     #R_comp = read_rotation_3x3_from_txt(mount_path)
 
-    q_wxyz = [7.0449641555784903e-01,   1.8258959781162258e-02,   2.2140635905053534e-02,   7.0912707119165308e-01]
+    #q_wxyz = [7.0449641555784903e-01,   1.8258959781162258e-02,   2.2140635905053534e-02,   7.0912707119165308e-01]
+    q_wxyz = [7.0940601823031613e-01,   1.7945556212984080e-02,   2.2350257624623646e-02,   7.0421695825662123e-01]
 
     # Reorder to (x, y, z, w) for SciPy
     q_xyzw = [q_wxyz[1], q_wxyz[2], q_wxyz[3], q_wxyz[0]]
