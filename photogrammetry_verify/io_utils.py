@@ -5,6 +5,8 @@ from typing import List, Optional, Dict, Tuple
 import numpy as np
 import csv
 import pyproj
+import os 
+import glob
 
 @dataclass
 class BoresightCalibration:
@@ -279,8 +281,7 @@ def load_av4_timing(img_path):
     df = pd.concat(df_list, ignore_index=True)
         #timing_dict.update(pd.Series(df.time.values, index=df.id).to_dict())
     # ensure times are sorted in ascending order
-    times = df['time'].values
-    times.sort()
+    times = np.sort(df['time'].values)
     return times
 
 

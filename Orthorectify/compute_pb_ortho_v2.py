@@ -15,6 +15,8 @@ import spectral.io.envi as envi
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 # --- Global worker variable ---
 # This holds the pipeline instance for each process
@@ -92,6 +94,7 @@ class OrthoPipeline:
         self.load_and_interpolate_SBET()
         self.load_dsm()
         
+        
         # --- Spectral IO Integration ---
         self.img_path = self.cfg['paths']['image_file']
         # Automatically find the .hdr associated with the image file
@@ -109,6 +112,7 @@ class OrthoPipeline:
         self.n_lines = self.envi_obj.nrows
         self.n_samples = self.envi_obj.ncols
         self.n_bands = self.envi_obj.nbands
+        #self.visualize_geometry(n_samples=20)
         
         print(f"Data ready: {self.n_lines} lines, {self.n_samples} samples, {self.n_bands} bands.")
 
@@ -118,21 +122,202 @@ class OrthoPipeline:
         self.geo_to_ecef = Transformer.from_crs("epsg:4326", "epsg:4978", always_xy=True)
         self.local_to_ecef = Transformer.from_crs(f"epsg:{epsg_out}", "epsg:4978", always_xy=True)
 
+
+    def visualize_geometry(self, n_samples=10, ground_height=None):
+        """
+        Plots the camera trajectory and FOV footprints in a local coordinate system.
+        """
+        print("Generating 3D Geometry Visualization...")
+        
+        # 1. Determine average ground height if not provided
+        if ground_height is None:
+            # Use a sample from the DSM or trajectory height minus 500m
+            ground_height = np.nanmean(self.line_pos_ecef[:, 2]) - 500
+        
+        # 2. Subsample the flight line for visualization
+        indices = np.linspace(0, self.n_lines - 1, n_samples).astype(int)
+        
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Local offset to make coordinates readable (centered on first point)
+        offset = self.line_pos_ecef[0]
+
+        # Trajectory
+        traj_local = self.line_pos_ecef[1:] - offset
+        ax.plot(traj_local[:, 0], traj_local[:, 1], traj_local[:, 2], 'b-', label='Trajectory')
+
+        # Define FOV edge rays in Camera Frame
+        # Normalized coordinates for Sample 0 and Sample Max
+        half_w = self.cam_model.width / 2
+        f = self.cam_model.fx
+        
+        # Ray vectors: [x_right, y_forward, z_down]
+        # We take the leftmost pixel, center, and rightmost pixel
+        rays_cam = np.array([
+            [(-half_w - self.cam_model.cx)/f, 0, 1], # Left Edge
+            [(0 - self.cam_model.cx)/f, 0, 1],       # Center
+            [(half_w - self.cam_model.cx)/f, 0, 1]   # Right Edge
+        ]).T 
+
+        for idx in indices:
+            # Get Pose
+            R_b2e = self.line_R_b2e[idx]
+            pos_ecef = self.line_pos_ecef[idx]
+            cam_center = pos_ecef + R_b2e @ self.lever_arm_body
+            
+            # Combined Rotation Camera -> ECEF
+            R_c2e = R_b2e @ self.R_cam_to_body #
+            
+            # Project Rays to Global
+            rays_global = R_c2e @ rays_cam
+            
+            # Draw the FOV "Fan"
+            for i in range(3):
+                ray = rays_global[:, i]
+                # Find intersection with ground plane (simple Z-intercept)
+                # cam_center + scale * ray = ground_height
+                scale = (ground_height - cam_center[2]) / ray[2]
+                hit_point = cam_center + scale * ray
+                
+                p1 = cam_center - offset
+                p2 = hit_point - offset
+                
+                color = 'red' if i != 1 else 'green' # Green for center look-vector
+                ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], color, alpha=0.5)
+
+        ax.set_xlabel('Easting (m)')
+        ax.set_ylabel('Northing (m)')
+        ax.set_zlabel('Up (m)')
+        plt.legend()
+        plt.title("Camera FOV Footprint Verification")
+        plt.show()
+    # ==========================================
+    # Optimized Geometry Logic
+    # ==========================================
+
     def setup_mounting(self):
         m = self.cfg['mounting']
         self.lever_arm_body = np.array(m['lever_arm'])
         
-        # 1. Load Mounting Matrix (3x3)
-        # Reshape flat list [r11, r12... r33] into (3,3)
+        # Load raw mounting matrix
         r_mount = np.array(m['mounting_matrix']).reshape(3, 3)
         
-        # 2. Load Boresight (Degrees)
-        # Create rotation from Euler angles
+        # Boresight as a small-angle rotation matrix
+        # Often boresight is defined as small R, P, Y corrections
         r_bore = R.from_euler('xyz', m['boresight_rpy_deg'], degrees=True).as_matrix()
         
-        # 3. Composite Rotation: Camera -> Body
-        # R_total = R_mount * R_boresight
-        self.R_cam_to_body = r_mount @ r_bore
+        # IMPORTANT: Check if your matrix is Body->Cam or Cam->Body
+        # Defaulting to Cam->Body. If distortion persists, use r_mount.T
+        self.R_cam_to_body = r_mount @ r_bore 
+
+    def ground_to_image(self, points_ecef):
+        # 1. Initial guess
+        _, idxs_sub = self.tsi_tree.query(points_ecef)
+        
+        # 'cur_idx' tracks the THEORETICAL index (can go negative or > max)
+        cur_idx = idxs_sub * 0.00 
+        avg_dt = (self.line_times[-1] - self.line_times[0]) / self.n_lines
+        
+        # 2. Newton-Raphson Iteration
+        for i in range(20):
+            # CLAMP for data lookup (we can't ask for index -5 from the array)
+            idx_int = np.clip(np.round(cur_idx), 0, self.n_lines - 1).astype(int)
+            
+            # Get Trajectory Data at the clamped time
+            R_b2e = self.line_R_b2e[idx_int]
+            pos_body = self.line_pos_ecef[idx_int]
+            
+            # Project
+            cam_centers = pos_body + np.einsum('nij,j->ni', R_b2e, self.lever_arm_body)
+            vec_global = points_ecef - cam_centers
+            R_c2e = np.einsum('nij,jk->nik', R_b2e, self.R_cam_to_body)
+            vec_cam = np.einsum('nji,nj->ni', R_c2e, vec_global)
+            
+            # Project to image plane (u, v)
+            uv = self.cam_model.project(vec_cam)
+            
+            # Calculate Error (Along-track distance / speed / dt)
+            # This updates the 'theoretical' index
+            # If we are at line 0 but the point is 500m behind us, 
+            # this will push cur_idx to negative values (e.g. -150)
+            step = (vec_cam[:, 1] / self.mean_speed) / avg_dt
+            cur_idx -= step
+            
+            # Convergence check (optional optimization)
+            if np.max(np.abs(step)) < 0.05:
+                break
+        
+        # Return the THEORETICAL index (unclipped) and the sample (column) index
+        return np.stack([cur_idx, uv[:, 0]], axis=1)
+
+    def ground_to_image_orig(self, points_ecef):
+        """ 
+        Enhanced Iterative Time Refinement 
+        Checks both X and Y for the along-track error component.
+        """
+        # 1. Initial guess using spatial proximity
+        _, idxs_sub = self.tsi_tree.query(points_ecef)
+        cur_idx = np.clip(idxs_sub * 50, 0, self.n_lines - 1).astype(float)
+        
+        avg_dt = (self.line_times[-1] - self.line_times[0]) / self.n_lines
+        
+        # Newton-Raphson iterations
+        for i in range(20): # Increased iterations for stability
+            idx_int = cur_idx.astype(int)
+            
+            # Get Pose at current time guess
+            pos_body = self.line_pos_ecef[idx_int]
+            R_b2e = self.line_R_b2e[idx_int]
+            
+            # Camera Center in ECEF
+            cam_centers = pos_body + np.einsum('nij,j->ni', R_b2e, self.lever_arm_body)
+            
+            # Vector from Camera to Ground in ECEF
+            vec_global = points_ecef - cam_centers
+            
+            # Combined Rotation: Camera -> ECEF
+            R_c2e = np.einsum('nij,jk->nik', R_b2e, self.R_cam_to_body)
+            
+            # Project global vector into Camera Local Frame
+            # vec_cam = [X_right, Y_forward, Z_down] (typical)
+            vec_cam = np.einsum('nji,nj->ni', R_c2e, vec_global)
+            
+            # PROJECT TO IMAGE (Checks for convergence)
+            uv = self.cam_model.project(vec_cam)
+            
+            # CRITICAL: The "along-track" error. 
+            # If your sensor is rotated 90 deg, this should be vec_cam[:, 0]
+            # Most pushbrooms want to minimize the 'forward' displacement to 0
+            # to find the exact moment the line passed over the point.
+            along_track_error = vec_cam[:, 1] 
+            
+            # Update time guess: dt = error / velocity
+            step = (along_track_error / self.mean_speed) / avg_dt
+            
+            cur_idx = np.clip(cur_idx - step, 0, self.n_lines - 1)
+            
+            # Convergence check
+            if np.max(np.abs(step)) < 0.01:
+                break
+                
+        return np.stack([cur_idx, uv[:, 0]], axis=1)
+    
+    # def setup_mounting(self):
+    #     m = self.cfg['mounting']
+    #     self.lever_arm_body = np.array(m['lever_arm'])
+        
+    #     # 1. Load Mounting Matrix (3x3)
+    #     # Reshape flat list [r11, r12... r33] into (3,3)
+    #     r_mount = np.array(m['mounting_matrix']).reshape(3, 3)
+        
+    #     # 2. Load Boresight (Degrees)
+    #     # Create rotation from Euler angles
+    #     r_bore = R.from_euler('xyz', m['boresight_rpy_deg'], degrees=True).as_matrix()
+        
+    #     # 3. Composite Rotation: Camera -> Body
+    #     # R_total = R_mount * R_boresight
+    #     self.R_cam_to_body = r_mount @ r_bore
 
     def load_and_interpolate_SBET(self):
         """
@@ -151,7 +336,7 @@ class OrthoPipeline:
         self.line_times = img_times
         # Define time span of images
         #img_times = np.array([timing_map[img_id]  for img_id in timing_map])
-        time_buffer = 100
+        time_buffer = 0.001
         img_time_span = [img_times.min()-time_buffer, img_times.max()+time_buffer]
     
         t_start, t_end = img_time_span
@@ -181,22 +366,23 @@ class OrthoPipeline:
             with open(self.cfg['paths']['trajectory_file'], "w") as f:
                 f.write("time,lat,lon,alt,roll,pitch,yaw\n")
                 for i in range(len(trajectory.t)):
-                    f.write(f"{trajectory.t[i]},{trajectory.lla[0,i]},{trajectory.lla[1,i]},{trajectory.lla[2,i]},{trajectory.rpy[0,i]},{trajectory.rpy[1,i]},{trajectory.rpy[2,i]}\n")
+                    f.write(f"{trajectory.t[i]},{np.rad2deg(trajectory.lla[0,i])},{np.rad2deg(trajectory.lla[1,i])},{np.rad2deg(trajectory.lla[2,i])},{np.rad2deg(trajectory.rpy[0,i])},{np.rad2deg(trajectory.rpy[1,i])},{np.rad2deg(trajectory.rpy[2,i])}\n")
             print(f"    Wrote trajectory to {self.cfg['paths']['trajectory_file']}")
         # Interpolate poses at image times
-
-            # write t,lla,rpy to csv downsampled every 100th for debugging
-            with open(self.cfg['paths']['trajectory_file'] + "_downsampled.csv", "w") as f:
-                f.write("time,lat,lon,alt,roll,pitch,yaw\n")
-                for i in range(0, len(t),100):
-                    f.write(f"{t[i]},{lla[i,0]},{lla[i,1]},{lla[i,2]},{rpy[i,0]},{rpy[i,1]},{rpy[i,2]}\n")
             # Compute interpolated poses at image times
             img_poses = trajectory.interpolate(img_times, self.cfg,customRPY=False)
-            # write poses to csv for debugging
-            with open(self.cfg['paths']['poses_file'], "w") as f:
-                f.write("time,lat,lon,alt,roll,pitch,yaw\n")
-                for pose in img_poses:
-                    f.write(f"{pose.t},{pose.lla[0]},{pose.lla[1]},{pose.lla[2]},{pose.rpy[0]},{pose.rpy[1]},{pose.rpy[2]}\n")
+            
+            if self.cfg['project'].get('write_sbet_ascii', True):
+                # write t,lla,rpy to csv downsampled every 100th for debugging
+                with open(self.cfg['paths']['trajectory_file'] + "_downsampled.csv", "w") as f:
+                    f.write("time,lat,lon,alt,roll,pitch,yaw\n")
+                    for i in range(0, len(t),100):
+                        f.write(f"{t[i]},{np.rad2deg(lla[i,0])},{np.rad2deg(lla[i,1])},{lla[i,2]},{np.rad2deg(rpy[i,0])},{np.rad2deg(rpy[i,1])},{np.rad2deg(rpy[i,2])}\n")
+                # write poses to csv for debugging
+                with open(self.cfg['paths']['poses_file'], "w") as f:
+                    f.write("time,lat,lon,alt,roll,pitch,yaw\n")
+                    for pose in img_poses:
+                        f.write(f"{pose.t},{np.rad2deg(pose.lla[0])},{np.rad2deg(pose.lla[1])},{pose.lla[2]},{np.rad2deg(pose.rpy[0])},{np.rad2deg(pose.rpy[1])},{np.rad2deg(pose.rpy[2])}\n")
             print(f"    Interpolated {len(img_poses)} image poses")
         else:
             # Load poses from defined csv path
@@ -246,7 +432,7 @@ class OrthoPipeline:
         self.mean_speed = np.nanmean(speeds)
         
         # 7. Spatial Indexing
-        step = 50
+        step = 10
         self.tsi_tree = cKDTree(self.line_pos_ecef[::step])
         self.tsi_times = self.line_times[::step]
 
@@ -294,7 +480,7 @@ class OrthoPipeline:
         self.mean_speed = np.nanmean(speeds)
         
         # I. Spatial Indexing
-        step = 50
+        step = 10
         print(f"Building KDTree (step={step})...")
         # Use center of scanline approximation for index
         self.tsi_tree = cKDTree(self.line_pos_ecef[::step])
@@ -305,8 +491,8 @@ class OrthoPipeline:
         """
         Computes R_b2e = R_ned2ecef * R_body2ned for all lines efficiently.
         """
-        lats = np.radians(line_geo[:, 0])
-        lons = np.radians(line_geo[:, 1])
+        lats = line_geo[:, 0]
+        lons = line_geo[:, 1]
         
         sl, cl = np.sin(lats), np.cos(lats)
         slo, clo = np.sin(lons), np.cos(lons)
@@ -324,7 +510,8 @@ class OrthoPipeline:
         R_b2n = np.array([Rmat.as_matrix() for Rmat in line_rots])
         
         # Final R_body2ecef
-        return R_n2e @ R_b2n
+        return np.einsum('nij,njk->nik', R_n2e, R_b2n)
+        #return R_n2e @ R_b2n
 
     def load_dsm(self):
         print("Loading DSM...")
@@ -439,24 +626,24 @@ class OrthoPipeline:
              
         return out_flat.reshape(h, w)
 
-    def ground_to_image(self, points_ecef):
-        _, idxs_sub = self.tsi_tree.query(points_ecef)
-        cur_idx = np.clip(idxs_sub * 50, 0, self.n_lines - 1).astype(float)
-        avg_dt = (self.line_times[-1] - self.line_times[0]) / self.n_lines
+    # def ground_to_image(self, points_ecef):
+    #     _, idxs_sub = self.tsi_tree.query(points_ecef)
+    #     cur_idx = np.clip(idxs_sub * 50, 0, self.n_lines - 1).astype(float)
+    #     avg_dt = (self.line_times[-1] - self.line_times[0]) / self.n_lines
 
-        for _ in range(5):
-            idx_int = cur_idx.astype(int)
-            R_c2e = np.einsum('nij,jk->nik', self.line_R_b2e[idx_int], self.R_cam_to_body)
-            cam_centers = self.line_pos_ecef[idx_int] + np.einsum('nij,j->ni', self.line_R_b2e[idx_int], self.lever_arm_body)
-            vec_cam = np.einsum('nji,nj->ni', R_c2e, points_ecef - cam_centers)
-            uv = self.cam_model.project(vec_cam)
+    #     for _ in range(5):
+    #         idx_int = cur_idx.astype(int)
+    #         R_c2e = np.einsum('nij,jk->nik', self.line_R_b2e[idx_int], self.R_cam_to_body)
+    #         cam_centers = self.line_pos_ecef[idx_int] + np.einsum('nij,j->ni', self.line_R_b2e[idx_int], self.lever_arm_body)
+    #         vec_cam = np.einsum('nji,nj->ni', R_c2e, points_ecef - cam_centers)
+    #         uv = self.cam_model.project(vec_cam)
             
-            cur_idx -= (vec_cam[:, 1] / self.mean_speed) / avg_dt
-            cur_idx = np.clip(cur_idx, 0, self.n_lines - 1)
+    #         cur_idx -= (vec_cam[:, 1] / self.mean_speed) / avg_dt
+    #         cur_idx = np.clip(cur_idx, 0, self.n_lines - 1)
             
-        return np.stack([cur_idx, uv[:, 0]], axis=1)
+    #     return np.stack([cur_idx, uv[:, 0]], axis=1)
     
-    def process_tile(self, window):
+    def process_tile_v0(self, window):
         transform = self.dsm_transform
         xs = np.arange(window.col_off, window.col_off + window.width) * transform.a + transform.c
         ys = np.arange(window.row_off, window.row_off + window.height) * transform.e + transform.f
@@ -494,6 +681,54 @@ class OrthoPipeline:
                 
         return out_image
 
+    def process_tile(self, window):
+        transform = self.dsm_transform
+        xs = np.arange(window.col_off, window.col_off + window.width) * transform.a + transform.c
+        ys = np.arange(window.row_off, window.row_off + window.height) * transform.e + transform.f
+        xx, yy = np.meshgrid(xs, ys)
+
+        flat_x, flat_y = xx.ravel(), yy.ravel()
+        flat_z = self.dsm_interp((flat_y, flat_x))
+        valid = ~np.isnan(flat_z)
+        
+        # Run projection
+        ecef_pts = np.stack(self.local_to_ecef.transform(flat_x[valid], flat_y[valid], flat_z[valid]), axis=1)
+        img_coords = self.ground_to_image(ecef_pts)
+        
+        # --- NEW FILTERING LOGIC ---
+        
+        # 1. Line Index (Float) -> Int
+        l_float = img_coords[:, 0]
+        s_float = img_coords[:, 1]
+        
+        l_idx = np.round(l_float).astype(int)
+        s_idx = np.round(s_float).astype(int)
+        
+        # 2. Strict Bounds Check
+        # Now we check if the THEORETICAL index is actually inside the image
+        # indices < 0 mean "before start of flight"
+        # indices >= n_lines mean "after end of flight"
+        valid_lines = (l_idx >= 0) & (l_idx < self.n_lines)
+        valid_samples = (s_idx >= 0) & (s_idx < self.n_samples)
+        
+        # Combine with valid DSM mask
+        in_bounds = valid_lines & valid_samples
+        
+        # 3. Apply to output
+        out_image = np.zeros((self.n_bands, window.height, window.width), dtype=self.img_data.dtype)
+        
+        # Map only strictly valid pixels
+        valid_pixel_locs = np.where(valid)[0][in_bounds]
+        
+        if len(valid_pixel_locs) > 0:
+            pixel_values = self.img_data[l_idx[in_bounds], s_idx[in_bounds], :].T
+            
+            for b in range(self.n_bands):
+                band_flat = out_image[b].ravel()
+                band_flat[valid_pixel_locs] = pixel_values[b]
+                out_image[b] = band_flat.reshape(window.height, window.width)
+                
+        return out_image
 
 if __name__ == "__main__":
     #pipeline = OrthoPipeline("Orthorectify/ortho_config.yaml")
@@ -520,6 +755,8 @@ if __name__ == "__main__":
             tiled=True
         )
         windows = [window for ij, window in dsm_src.block_windows()]
+
+    #meta_pipeline.visualize_geometry(n_samples=15)
 
     # Run Parallel Processing
     print(f"Launching {num_cores} cores with {len(windows)} tiles...")

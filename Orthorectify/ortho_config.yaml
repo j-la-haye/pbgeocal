@@ -4,7 +4,7 @@ project:
   epsg_dsm: 4979  # DSM CRS
 
 processing:
-  num_cores: 4  # Set to the number of physical cores you want to use
+  num_cores: 6  # Set to the number of physical cores you want to use
   block_size: 512 # Size of the processing tile (e.g., 512x512)
 
 paths:
@@ -16,16 +16,19 @@ paths:
   timing_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/" # Cols: line_idx, time
   sbet_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/SBET_Clmbr_Cal_ODyN_v8.out"               # Cols: time, lat, lon, height, roll, pitch, yaw
   output_ortho: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/Orthos/L5/L5_rgb_ortho.tif"
-  trajectory_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/l5_trajectory.csv"  # Optional: Pre-interpolated trajectory for faster loading
+  write_sbet_ascii: False  # Whether to write out the SBET trajectory in a human-readable format for debugging
+  trajectory_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/l5_trajectory.csv"  # Optional: Pre-interpolated trajectory for faster loading # Optional: Trajectory in ASCII for debugging
   poses_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/l5_image_poses.csv"  # Optional: Interpolated image poses for debugging
 camera:
   focal_length_px: 1796.753 
-  principal_point: [8.5, 0.385]  # cx, cy (relative to center usually, or absolute)
+  principal_point: [628.5, 0.385]  # cx, cy (relative to center usually, or absolute)
   image_size: [1240, 1]    # width, height (Linear Array)
   
   # Distortion coefficients (Brown-Conrady)
-  k: [-0.396332, 0.180911, 1.0] # k1, k2, k3
-  p: [-0.001132, -0.184947]      # p1, p2
+  k: [0.0, 0.0, 0.0] # k1, k2, k3
+  p: [0.0, 0.0]      # p1, p2
+  #k: [-0.396332, 0.180911, 0.0] # k1, k2, k3
+  #p: [-0.001132, -0.184947]      # p1, p2
 
 mounting:
   # Physical offset from IMU center to Camera center in Body Frame (meters)
@@ -40,4 +43,4 @@ mounting:
   
   # Boresight Misalignment (Degrees)
   # Small corrections applied AFTER the mounting matrix
-  boresight_rpy_deg: [-0.304, 3.275, 0.367] # roll, pitch, yaw in degrees
+  boresight_rpy_deg: [ 6.304, 0.275,0.367] # roll, pitch, yaw in degrees
