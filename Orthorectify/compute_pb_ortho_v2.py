@@ -2,7 +2,7 @@ import yaml
 import numpy as np
 import pandas as pd
 import rasterio
-from rasterio.windows import Window
+from rasterio.windows import Window, bounds as window_bounds
 from pyproj import Transformer
 from scipy.interpolate import interp1d, RegularGridInterpolator
 from scipy.spatial.transform import Rotation as R, Slerp
@@ -123,6 +123,26 @@ class OrthoPipeline:
         self.local_to_ecef = Transformer.from_crs(f"epsg:{epsg_out}", "epsg:4978", always_xy=True)
 
 
+    def ecef_to_enu(self, points, ref_point):
+        """Converts ECEF points to Local East-North-Up relative to ref_point."""
+        lat, lon, h = self.geo_to_ecef.transform(ref_point[0], ref_point[1], ref_point[2], direction='INVERSE')
+        
+        # Rotation matrix from ECEF to ENU
+        sl, cl = np.sin(np.radians(lat)), np.cos(np.radians(lat))
+        so, co = np.sin(np.radians(lon)), np.cos(np.radians(lon))
+        R_ecef2enu = np.array([
+            [-so, co, 0],
+            [-sl*co, -sl*so, cl],
+            [cl*co, cl*so, sl]
+        ])
+        
+        diff = points - ref_point
+        return diff @ R_ecef2enu.T
+
+    # Inside visualize_geometry:
+    # Replace: traj_local = self.line_pos_ecef - offset
+    # With:    traj_local = self.ecef_to_enu(self.line_pos_ecef, self.line_pos_ecef[0])
+
     def visualize_geometry(self, n_samples=10, ground_height=None):
         """
         Plots the camera trajectory and FOV footprints in a local coordinate system.
@@ -130,9 +150,7 @@ class OrthoPipeline:
         print("Generating 3D Geometry Visualization...")
         
         # 1. Determine average ground height if not provided
-        if ground_height is None:
-            # Use a sample from the DSM or trajectory height minus 500m
-            ground_height = np.nanmean(self.line_pos_ecef[:, 2]) - 500
+        
         
         # 2. Subsample the flight line for visualization
         indices = np.linspace(0, self.n_lines - 1, n_samples).astype(int)
@@ -141,11 +159,15 @@ class OrthoPipeline:
         ax = fig.add_subplot(111, projection='3d')
         
         # Local offset to make coordinates readable (centered on first point)
-        offset = self.line_pos_ecef[0]
+        offset =  self.line_pos_ecef[0] #line_ENH[0]
 
         # Trajectory
-        traj_local = self.line_pos_ecef[1:] - offset
+        traj_local = self.ecef_to_enu(self.line_pos_ecef, offset)
         ax.plot(traj_local[:, 0], traj_local[:, 1], traj_local[:, 2], 'b-', label='Trajectory')
+
+        if ground_height is None:
+            # Use a sample from the DSM or trajectory height minus 500m
+            ground_height = np.nanmean(traj_local[:, 2]) - 500
 
         # Define FOV edge rays in Camera Frame
         # Normalized coordinates for Sample 0 and Sample Max
@@ -163,8 +185,8 @@ class OrthoPipeline:
         for idx in indices:
             # Get Pose
             R_b2e = self.line_R_b2e[idx]
-            pos_ecef = self.line_pos_ecef[idx]
-            cam_center = pos_ecef + R_b2e @ self.lever_arm_body
+            pos_enu = traj_local[idx] #self.line_ENH[idx]
+            cam_center = pos_enu + R_b2e @ self.lever_arm_body
             
             # Combined Rotation Camera -> ECEF
             R_c2e = R_b2e @ self.R_cam_to_body #
@@ -180,8 +202,8 @@ class OrthoPipeline:
                 scale = (ground_height - cam_center[2]) / ray[2]
                 hit_point = cam_center + scale * ray
                 
-                p1 = cam_center - offset
-                p2 = hit_point - offset
+                p1 = cam_center - traj_local[0]
+                p2 = hit_point - traj_local[0]
                 
                 color = 'red' if i != 1 else 'green' # Green for center look-vector
                 ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], color, alpha=0.5)
@@ -200,23 +222,109 @@ class OrthoPipeline:
         m = self.cfg['mounting']
         self.lever_arm_body = np.array(m['lever_arm'])
         
-        # Load raw mounting matrix
-        r_mount = np.array(m['mounting_matrix']).reshape(3, 3)
+        # Base mounting from config (usually measures how sensor is bolted)
+        r_mount_cfg = np.array(m['mounting_matrix']).reshape(3, 3)
         
-        # Boresight as a small-angle rotation matrix
-        # Often boresight is defined as small R, P, Y corrections
+        # FIX: Add a pre-rotation to align Camera axes with Body axes
+        # Try one of these if the lines aren't perpendicular:
+        
+        # Option A: Standard (Identity)
+        R_align = np.eye(3) 
+        
+        # Option B: Rotate 90 degrees around Z (Swap X/Y)
+        # Use this if scan lines run parallel to flight
+        #R_align = R.from_euler('z', 90, degrees=True).as_matrix() 
+
+        # Combine: R_total = R_mount @ R_align
+        # We also apply the boresight (small corrections) here
         r_bore = R.from_euler('xyz', m['boresight_rpy_deg'], degrees=True).as_matrix()
         
-        # IMPORTANT: Check if your matrix is Body->Cam or Cam->Body
-        # Defaulting to Cam->Body. If distortion persists, use r_mount.T
-        self.R_cam_to_body = r_mount @ r_bore 
+        self.R_cam_to_body = r_mount_cfg @ R_align @ r_bore
 
+    
     def ground_to_image(self, points_ecef):
+        # 1. Initial Guess via KDTree
+        _, idxs_sub = self.tsi_tree.query(points_ecef)
+        
+        # SCALING: Ensure this matches your tree construction exactly.
+        # If you built tree with data[::50], then * 50.0 is correct.
+        cur_idx = idxs_sub * 50.0 
+        
+        avg_dt = (self.line_times[-1] - self.line_times[0]) / self.n_lines
+        
+        # 2. Iteration
+        for i in range(20):
+            # Clamp ONLY for looking up the camera pose
+            # We allow cur_idx to float freely outside bounds to detect "out of view" points
+            idx_int = np.clip(np.round(cur_idx), 0, self.n_lines - 1).astype(int)
+            
+            R_b2e = self.line_R_b2e[idx_int]
+            pos_body = self.line_pos_ecef[idx_int]
+            
+            # Project
+            cam_centers = pos_body + np.einsum('nij,j->ni', R_b2e, self.lever_arm_body)
+            vec_global = points_ecef - cam_centers
+            R_c2e = np.einsum('nij,jk->nik', R_b2e, self.R_cam_to_body)
+            vec_cam = np.einsum('nji,nj->ni', R_c2e, vec_global)
+            
+            # Calculate Step
+            # Using your finding: Subtracting step works best
+            step = (vec_cam[:, 1] / self.mean_speed) / avg_dt
+            
+            # DAMPING: 0.8 helps stabilize if the guess is jumpy
+            # Cap the jump to 500 lines per iteration to prevent divergence
+            step = np.clip(step, -500, 500)
+            cur_idx -= step * 0.8 
+            
+            # Break if converged
+            if np.max(np.abs(step)) < 0.1:
+                break
+        
+        # 3. Final Projection for sample index (u)
+        # We re-calculate one last time with the refined index to get the precise U coordinate
+        idx_final = np.clip(np.round(cur_idx), 0, self.n_lines - 1).astype(int)
+        R_b2e = self.line_R_b2e[idx_final]
+        pos_body = self.line_pos_ecef[idx_final]
+        cam_centers = pos_body + np.einsum('nij,j->ni', R_b2e, self.lever_arm_body)
+        vec_global = points_ecef - cam_centers
+        R_c2e = np.einsum('nij,jk->nik', R_b2e, self.R_cam_to_body)
+        vec_cam = np.einsum('nji,nj->ni', R_c2e, vec_global)
+        
+        uv = self.cam_model.project(vec_cam)
+
+        # --- NEW MASKING LOGIC ---
+        # 1. Define Valid Time Bounds (with a tiny buffer of 0.5 lines)
+        valid_time = (cur_idx >= -0.5) & (cur_idx <= self.n_lines - 0.5)
+        
+        # 2. Define Valid Sensor Bounds (Sensor Width)
+        # Assuming uv[:, 0] is the sample index (0 to n_samples)
+        valid_sample = (uv[:, 0] >= -0.5) & (uv[:, 0] <= self.n_samples - 0.5)
+        
+        # 3. Combine
+        is_valid = valid_time & valid_sample
+        
+        # 4. Create Result Container (Default to NaN)
+        # We initialize everything to NaN. Only valid points will get overwritten.
+        result = np.full((len(cur_idx), 2), np.nan)
+        
+        # 5. Fill only valid results
+        # We stack the Line Index (Time) and Sample Index
+        valid_results = np.stack([cur_idx, uv[:, 0]], axis=1)
+        
+        # Only copy values where is_valid is True
+        result[is_valid] = valid_results[is_valid]
+        
+        return result
+        
+        # Return raw (potentially out of bounds) indices
+        #return np.stack([cur_idx, uv[:, 0]], axis=1)
+    
+    def ground_to_image_v2(self, points_ecef):
         # 1. Initial guess
         _, idxs_sub = self.tsi_tree.query(points_ecef)
         
         # 'cur_idx' tracks the THEORETICAL index (can go negative or > max)
-        cur_idx = idxs_sub * 0.00 
+        cur_idx = idxs_sub * 50.00
         avg_dt = (self.line_times[-1] - self.line_times[0]) / self.n_lines
         
         # 2. Newton-Raphson Iteration
@@ -242,10 +350,10 @@ class OrthoPipeline:
             # If we are at line 0 but the point is 500m behind us, 
             # this will push cur_idx to negative values (e.g. -150)
             step = (vec_cam[:, 1] / self.mean_speed) / avg_dt
-            cur_idx -= step
+            cur_idx -= step * 0.5  # Dampen the update for stability
             
             # Convergence check (optional optimization)
-            if np.max(np.abs(step)) < 0.05:
+            if np.max(np.abs(step)) < 0.1:
                 break
         
         # Return the THEORETICAL index (unclipped) and the sample (column) index
@@ -290,7 +398,7 @@ class OrthoPipeline:
             # If your sensor is rotated 90 deg, this should be vec_cam[:, 0]
             # Most pushbrooms want to minimize the 'forward' displacement to 0
             # to find the exact moment the line passed over the point.
-            along_track_error = vec_cam[:, 1] 
+            along_track_error = vec_cam[:, 0] 
             
             # Update time guess: dt = error / velocity
             step = (along_track_error / self.mean_speed) / avg_dt
@@ -303,22 +411,6 @@ class OrthoPipeline:
                 
         return np.stack([cur_idx, uv[:, 0]], axis=1)
     
-    # def setup_mounting(self):
-    #     m = self.cfg['mounting']
-    #     self.lever_arm_body = np.array(m['lever_arm'])
-        
-    #     # 1. Load Mounting Matrix (3x3)
-    #     # Reshape flat list [r11, r12... r33] into (3,3)
-    #     r_mount = np.array(m['mounting_matrix']).reshape(3, 3)
-        
-    #     # 2. Load Boresight (Degrees)
-    #     # Create rotation from Euler angles
-    #     r_bore = R.from_euler('xyz', m['boresight_rpy_deg'], degrees=True).as_matrix()
-        
-    #     # 3. Composite Rotation: Camera -> Body
-    #     # R_total = R_mount * R_boresight
-    #     self.R_cam_to_body = r_mount @ r_bore
-
     def load_and_interpolate_SBET(self):
         """
         Loads SBET and Timing. 
@@ -417,6 +509,7 @@ class OrthoPipeline:
         # create ecef posisions from img_poses
         self.line_pos_ecef = np.array([pose.ecef for pose in img_poses])
         self.line_geo = np.array([pose.lla[:2] for pose in img_poses]) # lat, lon for each line
+        self.line_ENH = np.array([pose.ENH for pose in img_poses]) # ENH for each line
 
         line_rots = np.array([pose.R_ned2b for pose in img_poses]) # Rotation from NED to Body for each line
         
@@ -432,7 +525,7 @@ class OrthoPipeline:
         self.mean_speed = np.nanmean(speeds)
         
         # 7. Spatial Indexing
-        step = 10
+        step = 50
         self.tsi_tree = cKDTree(self.line_pos_ecef[::step])
         self.tsi_times = self.line_times[::step]
 
@@ -625,24 +718,7 @@ class OrthoPipeline:
              out_flat[valid_indices] = vals
              
         return out_flat.reshape(h, w)
-
-    # def ground_to_image(self, points_ecef):
-    #     _, idxs_sub = self.tsi_tree.query(points_ecef)
-    #     cur_idx = np.clip(idxs_sub * 50, 0, self.n_lines - 1).astype(float)
-    #     avg_dt = (self.line_times[-1] - self.line_times[0]) / self.n_lines
-
-    #     for _ in range(5):
-    #         idx_int = cur_idx.astype(int)
-    #         R_c2e = np.einsum('nij,jk->nik', self.line_R_b2e[idx_int], self.R_cam_to_body)
-    #         cam_centers = self.line_pos_ecef[idx_int] + np.einsum('nij,j->ni', self.line_R_b2e[idx_int], self.lever_arm_body)
-    #         vec_cam = np.einsum('nji,nj->ni', R_c2e, points_ecef - cam_centers)
-    #         uv = self.cam_model.project(vec_cam)
-            
-    #         cur_idx -= (vec_cam[:, 1] / self.mean_speed) / avg_dt
-    #         cur_idx = np.clip(cur_idx, 0, self.n_lines - 1)
-            
-    #     return np.stack([cur_idx, uv[:, 0]], axis=1)
-    
+ 
     def process_tile_v0(self, window):
         transform = self.dsm_transform
         xs = np.arange(window.col_off, window.col_off + window.width) * transform.a + transform.c
@@ -681,7 +757,7 @@ class OrthoPipeline:
                 
         return out_image
 
-    def process_tile(self, window):
+    def process_tile_v1(self, window):
         transform = self.dsm_transform
         xs = np.arange(window.col_off, window.col_off + window.width) * transform.a + transform.c
         ys = np.arange(window.row_off, window.row_off + window.height) * transform.e + transform.f
@@ -696,23 +772,34 @@ class OrthoPipeline:
         img_coords = self.ground_to_image(ecef_pts)
         
         # --- NEW FILTERING LOGIC ---
-        
-        # 1. Line Index (Float) -> Int
-        l_float = img_coords[:, 0]
-        s_float = img_coords[:, 1]
-        
-        l_idx = np.round(l_float).astype(int)
-        s_idx = np.round(s_float).astype(int)
-        
-        # 2. Strict Bounds Check
-        # Now we check if the THEORETICAL index is actually inside the image
-        # indices < 0 mean "before start of flight"
-        # indices >= n_lines mean "after end of flight"
+        # 1. Get raw float indices
+        l_idx = np.round(img_coords[:, 0]).astype(int)
+        s_idx = np.round(img_coords[:, 1]).astype(int)
+
+        # 2. STRICT Masking: Discard anything that fell outside the flight time
         valid_lines = (l_idx >= 0) & (l_idx < self.n_lines)
         valid_samples = (s_idx >= 0) & (s_idx < self.n_samples)
-        
-        # Combine with valid DSM mask
+
+        # 3. Update the validity mask
         in_bounds = valid_lines & valid_samples
+        # Only read pixels where 'in_bounds' is True
+        
+        # 1. Line Index (Float) -> Int
+        # l_float = img_coords[:, 0]
+        # s_float = img_coords[:, 1]
+        
+        # l_idx = np.round(l_float).astype(int)
+        # s_idx = np.round(s_float).astype(int)
+        
+        # # 2. Strict Bounds Check
+        # # Now we check if the THEORETICAL index is actually inside the image
+        # # indices < 0 mean "before start of flight"
+        # # indices >= n_lines mean "after end of flight"
+        # valid_lines = (l_idx >= 0) & (l_idx < self.n_lines)
+        # valid_samples = (s_idx >= 0) & (s_idx < self.n_samples)
+        
+        # # Combine with valid DSM mask
+        # in_bounds = valid_lines & valid_samples
         
         # 3. Apply to output
         out_image = np.zeros((self.n_bands, window.height, window.width), dtype=self.img_data.dtype)
@@ -729,6 +816,184 @@ class OrthoPipeline:
                 out_image[b] = band_flat.reshape(window.height, window.width)
                 
         return out_image
+
+    def process_tile_v2(self, window):
+        # ... DSM setup ...
+        transform = self.dsm_transform
+        xs = np.arange(window.col_off, window.col_off + window.width) * transform.a + transform.c
+        ys = np.arange(window.row_off, window.row_off + window.height) * transform.e + transform.f
+        xx, yy = np.meshgrid(xs, ys)
+
+        flat_x, flat_y = xx.ravel(), yy.ravel()
+        flat_z = self.dsm_interp((flat_y, flat_x))
+        valid = ~np.isnan(flat_z)
+        
+        # Run projection
+        ecef_pts = np.stack(self.local_to_ecef.transform(flat_x[valid], flat_y[valid], flat_z[valid]), axis=1)
+        img_coords = self.ground_to_image(ecef_pts) # Returns [line_float, sample_float]
+        
+        # Check for NaNs (which indicate out-of-bounds)
+        valid_projection = ~np.isnan(img_coords).any(axis=1)
+    
+        # Apply strict validity mask
+        # We essentially "And" the existing 'valid' (DSM) mask with our new projection mask
+        final_valid_indices = np.where(valid)[0][valid_projection]
+
+        # 1. Create the Strict Mask
+        # Check if the float indices are within the actual sensor/flight bounds
+        mask = (img_coords[:, 0] >= 0) & (img_coords[:, 0] < self.n_lines - 1) & \
+            (img_coords[:, 1] >= 0) & (img_coords[:, 1] < self.n_samples - 1)
+
+        # 2. Initialize output as zeros (Black/Transparent)
+        out_tile = np.zeros((self.n_bands, window.height, window.width), dtype=self.img_data.dtype)
+
+        # 3. Apply the mask before reading from the hyperspectral cube
+        if np.any(mask):
+            # We only care about the subset of 'valid' DSM points that are also in the 'mask'
+                # Apply strict validity mask
+            # We essentially "And" the existing 'valid' (DSM) mask with our new projection mask
+            final_valid_indices = np.where(valid)[0][valid_projection]
+            
+            # Round the float coordinates to integers for pixel lookup
+            l_idx = np.round(img_coords[mask, 0]).astype(int)
+            s_idx = np.round(img_coords[mask, 1]).astype(int)
+
+            # Bulk read from the image data
+            # This assumes self.img_data is a memory-mapped array or loaded in RAM
+            pixels = self.img_data[l_idx, s_idx, :] # Shape: (N_masked, B)
+
+            # Map back to the 2D tile
+            for b in range(self.n_bands):
+                band_layer = out_tile[b].ravel()
+                band_layer[final_valid_indices] = pixels[:, b]
+                out_tile[b] = band_layer.reshape(window.height, window.width)
+
+        return out_tile
+
+    def process_tile_v3(self, window):
+        # 1. Generate DSM Grid for the Window
+        # (Standard code to create physical world points)
+        min_x, min_y, max_x, max_y = rasterio.windows.bounds(window, self.dsm_transform)
+        grid_x, grid_y = np.meshgrid(
+            np.linspace(min_x, max_x, window.width),
+            np.linspace(max_y, min_y, window.height)  # Note: Max to Min for image convention usually
+        )
+        
+        # Flatten for vectorized processing
+        flat_x = grid_x.ravel()
+        flat_y = grid_y.ravel()
+        flat_z = np.zeros_like(flat_x) # Or your actual DSM Z values
+        
+        # 2. Transform to ECEF
+        # (Assuming you have a method/transformer for this)
+        ecef_pts = np.stack(self.local_to_ecef.transform(flat_x, flat_y, flat_z), axis=1)
+        
+        # 3. Project World Points -> Image Coordinates
+        # Returns: [Line_Index, Sample_Index] with NaNs for invalid points
+        img_coords = self.ground_to_image(ecef_pts)
+        
+        # 4. Create the "Strict" Mask
+        # Any point with a NaN coordinate is technically "invisible" to the camera
+        valid_projection = ~np.isnan(img_coords).any(axis=1)
+        
+        # 5. Initialize Output Image
+        # Fill with 0 (Black/Transparent). This ensures the "curtains" remain empty.
+        out_tile = np.zeros((self.n_bands, window.height, window.width), dtype=self.img_data.dtype)
+        
+        # 6. Map Pixels (Only for strictly valid points)
+        if np.any(valid_projection):
+            # Get indices of points that are both in the DSM and visible to the camera
+            valid_indices = np.where(valid_projection)[0]
+            
+            # Get the float coordinates for these valid points
+            valid_coords = img_coords[valid_projection]
+            l_float = valid_coords[:, 0]
+            s_float = valid_coords[:, 1]
+            
+            # Nearest Neighbor Lookup (Round to int)
+            l_idx = np.round(l_float).astype(int)
+            s_idx = np.round(s_float).astype(int)
+            
+            # Clamp to safe bounds (just in case of rounding edge cases)
+            l_idx = np.clip(l_idx, 0, self.n_lines - 1)
+            s_idx = np.clip(s_idx, 0, self.n_samples - 1)
+            
+            # 7. Bulk Read and Assign
+            # Read all required pixels at once (Fast)
+            # Shape: (N_valid, Bands)
+            pixels = self.img_data[l_idx, s_idx, :] 
+            
+            # Assign to the output tile
+            # We iterate bands to assign the flattened valid pixels back to the 2D tile
+            for b in range(self.n_bands):
+                # Get the flat view of the current band
+                band_flat = out_tile[b].ravel()
+                
+                # Write pixel values only into the valid slots
+                band_flat[valid_indices] = pixels[:, b]
+                
+                # Reshape back to (H, W) is automatic since band_flat is a view
+                out_tile[b] = band_flat.reshape(window.height, window.width)
+                
+        return out_tile   
+
+    from rasterio.transform import from_origin
+    def process_tile(self, window):
+        
+        # 1. Get the physical coordinates of the window's corners
+        transform = self.dsm_transform
+        left, bottom, right, top = window_bounds(window, self.dsm_transform)
+        # The transform is essentially: [GSD_x, Rotation, TopLeft_X, Rotation, -GSD_y, TopLeft_Y]
+        #print(f"Current GSD: {transform[0]}, {abs(transform[4])}")
+        
+        # 2. Generate DSM Grid matching the window size
+        # We use the window.width/height to ensure 1:1 pixel mapping
+        x_coords = np.linspace(left, right, window.width)
+        y_coords = np.linspace(top, bottom, window.height)
+        grid_x, grid_y = np.meshgrid(x_coords, y_coords)
+        
+        flat_x = grid_x.ravel()
+        flat_y = grid_y.ravel()
+        flat_z = np.zeros_like(flat_x) # Replace with DSM values if you have them
+        
+        # 3. Transform Local/Projected -> ECEF
+        ecef_pts = np.stack(self.local_to_ecef.transform(flat_x, flat_y, flat_z), axis=1)
+        
+        # 4. Project World Points -> Image Coordinates [Line, Sample]
+        # This now returns NaNs for anything outside the flight/sensor bounds
+        img_coords = self.ground_to_image(ecef_pts)
+        
+        # 5. Handle NaNs and Masking
+        valid_projection = ~np.isnan(img_coords).any(axis=1)
+        
+        # Initialize output tile (Bands, Height, Width)
+        out_tile = np.zeros((self.n_bands, window.height, window.width), dtype=self.img_data.dtype)
+        
+        if np.any(valid_projection):
+            # Extract valid image coordinates
+            l_idx = np.round(img_coords[valid_projection, 0]).astype(int)
+            s_idx = np.round(img_coords[valid_projection, 1]).astype(int)
+            
+            # Guard against index overflow
+            l_idx = np.clip(l_idx, 0, self.img_data.shape[0] - 1)
+            s_idx = np.clip(s_idx, 0, self.img_data.shape[1] - 1)
+            
+            # Identify which flat pixels in our tile are the ones we just found
+            valid_flat_indices = np.where(valid_projection)[0]
+            
+            # 6. Bulk Pixel Read
+            # img_data shape: [Lines, Samples, Bands]
+            pixel_data = self.img_data[l_idx, s_idx, :] 
+            
+            # 7. Assignment
+            for b in range(self.n_bands):
+                band_layer = out_tile[b].ravel()
+                band_layer[valid_flat_indices] = pixel_data[:, b]
+                out_tile[b] = band_layer.reshape(window.height, window.width)
+                
+        return out_tile
+                
+        
 
 if __name__ == "__main__":
     #pipeline = OrthoPipeline("Orthorectify/ortho_config.yaml")
@@ -756,7 +1021,7 @@ if __name__ == "__main__":
         )
         windows = [window for ij, window in dsm_src.block_windows()]
 
-    #meta_pipeline.visualize_geometry(n_samples=15)
+    meta_pipeline.visualize_geometry(n_samples=5)
 
     # Run Parallel Processing
     print(f"Launching {num_cores} cores with {len(windows)} tiles...")

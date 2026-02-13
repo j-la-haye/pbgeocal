@@ -4,7 +4,7 @@ project:
   epsg_dsm: 4979  # DSM CRS
 
 processing:
-  num_cores: 6  # Set to the number of physical cores you want to use
+  num_cores: 1  # Set to the number of physical cores you want to use
   block_size: 512 # Size of the processing tile (e.g., 512x512)
 
 paths:
@@ -31,7 +31,7 @@ camera:
   #p: [-0.001132, -0.184947]      # p1, p2
 
 mounting:
-  # Physical offset from IMU center to Camera center in Body Frame (meters)
+  # Physical offset from IMU center to Camera center in Body Frame (meters) FRD
   lever_arm: [-0.05493, 0.25697, 0.26223]
   
   # Mounting Matrix: Flattened 3x3 rotation matrix (Row-Major)
@@ -43,4 +43,5 @@ mounting:
   
   # Boresight Misalignment (Degrees)
   # Small corrections applied AFTER the mounting matrix
-  boresight_rpy_deg: [ 6.304, 0.275,0.367] # roll, pitch, yaw in degrees
+  boresight_rpy_deg: [0.275,3.304,  0.367] # roll, pitch, yaw in degrees
+  #boresight_rpy_deg: [10.304,0.275,  0.367]

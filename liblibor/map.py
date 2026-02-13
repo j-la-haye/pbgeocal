@@ -77,6 +77,8 @@ class Trajectory:
         
         for i in range(len(t)):
             self.R_ned2body[i] = R_ned2b(rpy[i,0], rpy[i,1], rpy[i,2])
+            # When creating your Slerp object:
+            #self.R_ned2body[i] = R.from_euler('zyx',np.array([rpy[i,2], rpy[i,1], rpy[i,0]]),degrees=False).as_matrix()
             self.R_ned2ecef[i] = R_ned2e(lla[i,0], lla[i,1])
             self.R_b2enu[i] = R_e2enu(lla[i,0], lla[i,1]) @ self.R_ned2ecef[i] @ self.R_ned2body[i].T
             #self.R_b2enu[i] = tp.R_ecef2enu @ self.R_ned2ecef[i] @ self.R_ned2body[i].T
@@ -87,7 +89,7 @@ class Trajectory:
         
         transformer = Transformer.from_crs(
             4326,
-            cfg['project']['epsg_out'],
+            2056,#cfg['project']['epsg_out'],
         always_xy=False  # Ensures lon, lat order
         )
         # Step 7: Convert camera position to projected coordinates
