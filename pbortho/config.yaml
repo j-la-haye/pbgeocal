@@ -1,0 +1,49 @@
+# =============================================================================
+# Pushbroom Orthorectification Configuration
+# =============================================================================
+
+camera:
+  focal_length_px: 12500.0          # focal length in pixels
+  principal_point_x: 4096.0         # cross-track principal point (px)
+  sensor_width_px: 8192             # pixels per scanline
+  distortion:                       # Brown-Conrady model
+    k1: -1.5e-8
+    k2:  3.0e-15
+    p1:  0.0
+    p2:  0.0
+
+mounting:
+  # Nominal mounting matrix: body-NED [fwd, right, down] → camera [x, y, z]
+  # Typical nadir pushbroom: x=right-wing, y=forward, z=down
+  matrix:
+    - [ 0,  1,  0]
+    - [-1,  0,  0]
+    - [ 0,  0,  1]
+  # Boresight fine-correction angles applied ON TOP of mounting matrix (radians)
+  boresight_roll:  0.0
+  boresight_pitch: 0.0
+  boresight_yaw:   0.0
+  # Lever arm: IMU centre → camera projection centre, in body-NED frame [fwd, right, down] (m)
+  lever_arm: [0.15, -0.02, 0.35]
+
+inputs:
+  sbet_path:           "/data/flight/sbet.out"
+  bil_path:            "/data/imagery/line001.bil"
+  exposure_times_path: "/data/imagery/line001_times.txt"   # one GPS-second per line
+  dsm_path:            "/data/dsm/dsm_ellipsoidal.tif"     # ellipsoidal heights
+
+outputs:
+  ortho_path: "/data/output/ortho_line001.tif"
+  gsd: 0.10            # output pixel spacing (metres) in the output CRS
+
+crs:
+  input_sbet: "EPSG:4326"   # WGS84 geodetic (SBET is always WGS84)
+  dsm:        "EPSG:2056"   # CRS of the DSM raster
+  output:     "EPSG:2056"   # target ortho CRS (e.g. Swiss LV95)
+
+processing:
+  tile_size: 512             # output tile edge length (pixels)
+  num_workers: 8             # ProcessPoolExecutor workers
+  max_iterations: 20         # Newton convergence ceiling
+  convergence_tol: 1.0e-7   # along-track angle tolerance (rad) ≈ 0.02 px @ f=12500
+  nodata: 0
