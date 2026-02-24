@@ -168,12 +168,19 @@ class TrajectoryInterpolator:
     def __init__(self, sbet: np.ndarray):
         self.times = sbet["time"].copy()
 
+        def setup_transforms(self):
+            epsg_out = self.cfg['project'].get('epsg_out', 32632)
+            print(f"Setting up transforms for EPSG:{epsg_out}")
+            self.geo_to_ecef = Transformer.from_crs("epsg:4326", "epsg:4978", always_xy=True)
+            self.local_to_ecef = Transformer.from_crs(f"epsg:{epsg_out}", "epsg:4978", always_xy=True)
+        
         # ── geodetic ──
         self.lat = sbet["lat"]
         self.lon = sbet["lon"]
         self.alt = sbet["alt"]
 
         # ── ECEF positions ──
+        sb_x, sb_y, sb_z = self.geo_to_ecef.transform(self.lon, self.lat, self.alt)
         ex, ey, ez = geodetic_to_ecef(self.lat, self.lon, self.alt)
         self._ip_x = interp1d(self.times, ex, kind="cubic", assume_sorted=True)
         self._ip_y = interp1d(self.times, ey, kind="cubic", assume_sorted=True)
