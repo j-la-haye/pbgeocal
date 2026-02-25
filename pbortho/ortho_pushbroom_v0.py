@@ -165,21 +165,23 @@ class TrajectoryInterpolator:
     (avoids gimbal-lock artefacts that plague Euler-angle interpolation).
     """
 
-    def __init__(self, sbet: np.ndarray, cfg: dict):
-        self.cfg = cfg
+    def __init__(self, sbet: np.ndarray):
         self.times = sbet["time"].copy()
 
-
+        def setup_transforms(self):
+            epsg_out = self.cfg['project'].get('epsg_out', 32632)
+            print(f"Setting up transforms for EPSG:{epsg_out}")
+            self.geo_to_ecef = Transformer.from_crs("epsg:4326", "epsg:4978", always_xy=True)
+            self.local_to_ecef = Transformer.from_crs(f"epsg:{epsg_out}", "epsg:4978", always_xy=True)
+        
         # ── geodetic ──
         self.lat = sbet["lat"]
         self.lon = sbet["lon"]
         self.alt = sbet["alt"]
-        self.setup_transforms()
 
         # ── ECEF positions ──
-        ex, ey, ez = self.geo_to_ecef.transform(self.lon, self.lat, self.alt,radians=True)
-        #verified as correct by comparing to geodetic_to_ecef output
-        #ex, ey, ez = geodetic_to_ecef(self.lat, self.lon, self.alt)
+        sb_x, sb_y, sb_z = self.geo_to_ecef.transform(self.lon, self.lat, self.alt)
+        ex, ey, ez = geodetic_to_ecef(self.lat, self.lon, self.alt)
         self._ip_x = interp1d(self.times, ex, kind="cubic", assume_sorted=True)
         self._ip_y = interp1d(self.times, ey, kind="cubic", assume_sorted=True)
         self._ip_z = interp1d(self.times, ez, kind="cubic", assume_sorted=True)
@@ -209,12 +211,6 @@ class TrajectoryInterpolator:
     def R_ned2body(self, t: np.ndarray) -> np.ndarray:
         """(N,) → (N, 3, 3)  rotation matrices NED → body."""
         return self._slerp(t).as_matrix()
-    
-    def setup_transforms(self):
-            epsg_out = self.cfg['crs'].get('output', 4979)
-            print(f"Setting up transforms for {epsg_out}")
-            self.geo_to_ecef = Transformer.from_crs("epsg:4326", "epsg:4978", always_xy=True)
-            self.local_to_ecef = Transformer.from_crs(f"{epsg_out}", "EPSG:4978", always_xy=True)
 
 
 ###############################################################################
@@ -286,14 +282,11 @@ class OrthoEngine:
 
         # ── trajectory ──
         sbet = read_sbet(cfg["inputs"]["sbet_path"])
-        self.traj = TrajectoryInterpolator(sbet,self.cfg)
+        self.traj = TrajectoryInterpolator(sbet)
 
         # ── exposure times (one GPS second per BIL line) ──
         self.line_times = np.loadtxt(cfg["inputs"]["exposure_times_path"],
                                      dtype=np.float64).ravel()
-        # scale exposure times to seconds from 10 microseconds (if needed)
-        if self.line_times.max() > 1e9:
-            self.line_times /= 1e5
         self.n_lines = self.line_times.size
 
         # ── build time → line index interpolator  and  line → time ──
@@ -535,12 +528,9 @@ class OrthoEngine:
         tile_row0: int, tile_col0: int,
         tile_rows: int, tile_cols: int,
         origin_e: float, origin_n: float,
-        pixel_dx: float, pixel_dy: float,
+        gsd: float,
     ) -> tuple[int, int, int, int, np.ndarray]:
         """Orthorectify one tile of the output grid.
-
-        pixel_dx / pixel_dy are the per-pixel spacings in CRS units
-        (metres for projected, degrees for geographic).
 
         Returns
         -------
@@ -550,8 +540,8 @@ class OrthoEngine:
         cols = np.arange(tile_cols) + tile_col0
 
         cc, rr = np.meshgrid(cols, rows)           # (tile_rows, tile_cols)
-        east  = origin_e + cc.ravel() * pixel_dx
-        north = origin_n - rr.ravel() * pixel_dy   # image row ↓ = north ↓
+        east = origin_e + cc.ravel() * gsd
+        north = origin_n - rr.ravel() * gsd        # image row ↓ = north ↓
 
         # ── sample DSM ──
         z = self.sample_dsm(east, north)
@@ -609,134 +599,51 @@ def _run_tile(args: tuple) -> tuple:
 # 7.  MAIN ORCHESTRATOR
 ###############################################################################
 
-def _densify_bounds(left, bottom, right, top, n_edge=20):
-    """Sample *n_edge* points along each edge of a bounding box.
-
-    Four corners alone can miss significant reprojection curvature;
-    dense edge sampling captures the true envelope after warping.
-
-    Returns
-    -------
-    xs, ys : (4*n_edge,) coordinate arrays tracing the perimeter.
-    """
-    s = np.linspace(0.0, 1.0, n_edge)
-    xs = np.concatenate([
-        left  + s * (right - left),   # bottom edge
-        np.full(n_edge, right),        # right  edge
-        right + s * (left  - right),   # top    edge
-        np.full(n_edge, left),         # left   edge
-    ])
-    ys = np.concatenate([
-        np.full(n_edge, bottom),       # bottom edge
-        bottom + s * (top - bottom),   # right  edge
-        np.full(n_edge, top),          # top    edge
-        top    + s * (bottom - top),   # left   edge
-    ])
-    return xs, ys
-
-
 def compute_output_grid(cfg: dict):
     """Derive output raster extent from the DSM and the requested GSD.
-
-    Works for **both** projected and geographic output CRS:
-
-    * **Projected** (e.g. EPSG:2056 Swiss LV95, UTM):
-      coordinates are already in metres → pixel counts = extent / GSD.
-
-    * **Geographic** (e.g. EPSG:4326 WGS-84):
-      bounds are in degrees → ``pyproj.Geod`` computes true geodesic
-      width / height in metres, then per-axis degree-per-pixel spacing is
-      derived so the GeoTIFF transform stays in native CRS units while
-      the on-ground resolution matches the requested GSD.
 
     Returns
     -------
     origin_e, origin_n : top-left corner in output CRS
     n_cols, n_rows     : output dimensions (pixels)
-    gsd                : ground sample distance (m) — or, for geographic CRS,
-                         a 2-tuple (d_lon, d_lat) in degrees that corresponds
-                         to the requested metric GSD.  The caller can unpack
-                         accordingly when building the rasterio transform.
+    gsd                : ground sample distance (m)
     """
-    from pyproj import Geod
-
-    gsd_m = cfg["outputs"]["gsd"]            # always in metres
+    gsd = cfg["outputs"]["gsd"]
 
     with rasterio.open(cfg["inputs"]["dsm_path"]) as ds:
-        dsm_bounds = ds.bounds               # in DSM CRS
+        dsm_bounds = ds.bounds                    # in DSM CRS
         dsm_crs = ds.crs
 
     crs_dsm = CRS(dsm_crs)
     crs_out = CRS(cfg["crs"]["output"])
 
-    # ── 1. Transform DSM bounds into the output CRS ───────────────────
     if crs_dsm == crs_out:
         left, bottom, right, top = dsm_bounds
     else:
-        # Dense edge sampling to capture reprojection curvature
-        xs, ys = _densify_bounds(
-            dsm_bounds.left, dsm_bounds.bottom,
-            dsm_bounds.right, dsm_bounds.top,
-            n_edge=50,
-        )
         tf = Transformer.from_crs(crs_dsm, crs_out, always_xy=True)
+        xs = [dsm_bounds.left, dsm_bounds.right,
+              dsm_bounds.left, dsm_bounds.right]
+        ys = [dsm_bounds.bottom, dsm_bounds.bottom,
+              dsm_bounds.top, dsm_bounds.top]
         ox, oy = tf.transform(xs, ys)
-        left, right = float(np.min(ox)), float(np.max(ox))
-        bottom, top = float(np.min(oy)), float(np.max(oy))
+        left, right = min(ox), max(ox)
+        bottom, top = min(oy), max(oy)
 
-    # ── 2. Grid dimensions ────────────────────────────────────────────
-    if crs_out.is_geographic:
-        # Bounds are in degrees — compute metric distances via geodesic
-        geod = Geod(ellps="WGS84")
-        mid_lat = 0.5 * (bottom + top)
-        mid_lon = 0.5 * (left + right)
-
-        # East-west metric extent along the mid-latitude parallel
-        _, _, width_m = geod.inv(left, mid_lat, right, mid_lat)
-        # North-south metric extent along the mid-longitude meridian
-        _, _, height_m = geod.inv(mid_lon, bottom, mid_lon, top)
-
-        width_m  = abs(width_m)
-        height_m = abs(height_m)
-
-        n_cols = int(np.ceil(width_m  / gsd_m))
-        n_rows = int(np.ceil(height_m / gsd_m))
-        n_cols = max(n_cols, 1)
-        n_rows = max(n_rows, 1)
-
-        # Degree-per-pixel spacing that honours the metric GSD
-        gsd_lon = (right - left) / n_cols     # ΔE per pixel (degrees)
-        gsd_lat = (top - bottom) / n_rows     # ΔN per pixel (degrees)
-
-        origin_e = left
-        origin_n = top
-        return origin_e, origin_n, n_cols, n_rows, (gsd_lon, gsd_lat)
-
-    else:
-        # Projected CRS — coordinates already in linear units (metres)
-        # Snap origin to an even multiple of GSD for tidy alignment
-        origin_e = np.floor(left / gsd_m) * gsd_m
-        origin_n = np.ceil(top   / gsd_m) * gsd_m
-
-        n_cols = int(np.ceil((right  - origin_e) / gsd_m))
-        n_rows = int(np.ceil((origin_n - bottom) / gsd_m))
-        n_cols = max(n_cols, 1)
-        n_rows = max(n_rows, 1)
-
-        return origin_e, origin_n, n_cols, n_rows, gsd_m
+    n_cols = int(np.ceil((right - left) / gsd))
+    n_rows = int(np.ceil((top - bottom) / gsd))
+    origin_e = left
+    origin_n = top
+    return origin_e, origin_n, n_cols, n_rows, gsd
 
 
 def generate_tiles(n_rows: int, n_cols: int, tile_size: int,
-                   origin_e: float, origin_n: float,
-                   pixel_dx: float, pixel_dy: float):
-    """Yield (row0, col0, rows, cols, origin_e, origin_n, pixel_dx, pixel_dy)
-    for each tile.  pixel_dx/dy are the per-pixel spacings in CRS units
-    (metres for projected, degrees for geographic)."""
+                   origin_e: float, origin_n: float, gsd: float):
+    """Yield (row0, col0, rows, cols, origin_e, origin_n, gsd) for each tile."""
     for r0 in range(0, n_rows, tile_size):
         rn = min(tile_size, n_rows - r0)
         for c0 in range(0, n_cols, tile_size):
             cn = min(tile_size, n_cols - c0)
-            yield (r0, c0, rn, cn, origin_e, origin_n, pixel_dx, pixel_dy)
+            yield (r0, c0, rn, cn, origin_e, origin_n, gsd)
 
 
 def main(config_path: str = "config.yaml"):
@@ -746,19 +653,8 @@ def main(config_path: str = "config.yaml"):
 
     # ── derive output grid ──
     origin_e, origin_n, n_cols, n_rows, gsd = compute_output_grid(cfg)
-
-    # gsd is either a scalar (projected) or (dx_deg, dy_deg) (geographic)
-    crs_out = CRS(cfg["crs"]["output"])
-    if isinstance(gsd, tuple):
-        pixel_dx, pixel_dy = gsd
-        gsd_m = cfg["outputs"]["gsd"]
-        print(f"Output grid: {n_cols} × {n_rows}  GSD≈{gsd_m} m "
-              f"(Δlon={pixel_dx:.8f}°, Δlat={pixel_dy:.8f}°)")
-    else:
-        pixel_dx = pixel_dy = gsd
-        print(f"Output grid: {n_cols} × {n_rows}  GSD={gsd} m")
-
-    print(f"Origin (E, N): ({origin_e:.6f}, {origin_n:.6f})")
+    print(f"Output grid: {n_cols} × {n_rows}  GSD={gsd} m")
+    print(f"Origin (E, N): ({origin_e:.2f}, {origin_n:.2f})")
 
     # ── figure out number of bands from the BIL header ──
     hdr_path = str(Path(cfg["inputs"]["bil_path"]).with_suffix(".hdr"))
@@ -768,9 +664,8 @@ def main(config_path: str = "config.yaml"):
 
     # ── prepare output GeoTIFF ──
     out_path = cfg["outputs"]["ortho_path"]
-    transform = rasterio.transform.from_origin(
-        origin_e, origin_n, pixel_dx, pixel_dy
-    )
+    crs_out = CRS(cfg["crs"]["output"])
+    transform = rasterio.transform.from_origin(origin_e, origin_n, gsd, gsd)
     nodata = cfg["processing"]["nodata"]
 
     dst = rasterio.open(
@@ -785,7 +680,7 @@ def main(config_path: str = "config.yaml"):
     # ── generate tile jobs ──
     tile_size = cfg["processing"]["tile_size"]
     tiles = list(generate_tiles(n_rows, n_cols, tile_size,
-                                origin_e, origin_n, pixel_dx, pixel_dy))
+                                origin_e, origin_n, gsd))
     n_workers = cfg["processing"]["num_workers"]
     print(f"Tiles: {len(tiles)}   Workers: {n_workers}")
 
@@ -810,5 +705,5 @@ def main(config_path: str = "config.yaml"):
 
 
 if __name__ == "__main__":
-    cfg_file = "pbortho/config.yaml" #if len(sys.argv) <= 1 else sys.argv[1]
+    cfg_file = "pbortho/config.yaml" #sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
     main(cfg_file)

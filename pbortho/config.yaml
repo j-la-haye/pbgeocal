@@ -3,47 +3,54 @@
 # =============================================================================
 
 camera:
-  focal_length_px: 12500.0          # focal length in pixels
-  principal_point_x: 4096.0         # cross-track principal point (px)
-  sensor_width_px: 8192             # pixels per scanline
+  focal_length_px: 1796.753           # focal length in pixels
+  principal_point_x: 628.5         # cross-track principal point (px)
+  sensor_width_px: 1240            # pixels per scanline
   distortion:                       # Brown-Conrady model
-    k1: -1.5e-8
-    k2:  3.0e-15
-    p1:  0.0
-    p2:  0.0
+    k1: 0.396332
+    k2:  0.180911
+    p1:  -0.001132
+    p2:  -0.184947
 
 mounting:
   # Nominal mounting matrix: body-NED [fwd, right, down] → camera [x, y, z]
   # Typical nadir pushbroom: x=right-wing, y=forward, z=down
   matrix:
-    - [ 0,  1,  0]
-    - [-1,  0,  0]
+    - [ 0,  -1,  0]
+    - [1,  0,  0]
     - [ 0,  0,  1]
-  # Boresight fine-correction angles applied ON TOP of mounting matrix (radians)
-  boresight_roll:  0.0
-  boresight_pitch: 0.0
-  boresight_yaw:   0.0
+  # Boresight fine-correction angles applied ON TOP of mounting matrix (degrees)
+  boresight_roll:  -0.3693
+  boresight_pitch: 3.2642
+  boresight_yaw:   -0.4312
+  
   # Lever arm: IMU centre → camera projection centre, in body-NED frame [fwd, right, down] (m)
-  lever_arm: [0.15, -0.02, 0.35]
+  lever_arm: [-0.05493, 0.25697, 0.26223]
+
+paths:
+  # Input Data
+  dsm_file: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/wgs84/DSM_converted_ss3d/DSM_mosaic_M024_Clbr_L3_6_wgs84_ellipsoid_reframe.tif"
+  image_file:  # Raw binary image
+  
 
 inputs:
-  sbet_path:           "/data/flight/sbet.out"
-  bil_path:            "/data/imagery/line001.bil"
-  exposure_times_path: "/data/imagery/line001_times.txt"   # one GPS-second per line
-  dsm_path:            "/data/dsm/dsm_ellipsoidal.tif"     # ellipsoidal heights
+  sbet_path:           "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/SBET_Clmbr_Cal_ODyN_v8.out" 
+  bil_path:            "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.bil" 
+  exposure_times_path: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.bil.timing"  # one GPS-second per line
+  dsm_path:            "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/wgs84/DSM_converted_ss3d/DSM_mosaic_M024_Clbr_L3_6_wgs84_ellipsoid_reframe.tif"     # ellipsoidal heights
 
 outputs:
-  ortho_path: "/data/output/ortho_line001.tif"
-  gsd: 0.10            # output pixel spacing (metres) in the output CRS
+  ortho_path: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/Orthos/L5/L5_rgb_ortho.tif"
+  gsd: 0.4            # output pixel spacing (metres) in the output CRS
 
 crs:
   input_sbet: "EPSG:4326"   # WGS84 geodetic (SBET is always WGS84)
-  dsm:        "EPSG:2056"   # CRS of the DSM raster
-  output:     "EPSG:2056"   # target ortho CRS (e.g. Swiss LV95)
+  dsm:        "EPSG:4979"   # CRS of the DSM raster
+  output:     "EPSG:4979"   # target ortho CRS (e.g. Swiss LV95)
 
 processing:
   tile_size: 512             # output tile edge length (pixels)
-  num_workers: 8             # ProcessPoolExecutor workers
+  num_workers: 2             # ProcessPoolExecutor workers
   max_iterations: 20         # Newton convergence ceiling
   convergence_tol: 1.0e-7   # along-track angle tolerance (rad) ≈ 0.02 px @ f=12500
-  nodata: 0
+  nodata: -99999
