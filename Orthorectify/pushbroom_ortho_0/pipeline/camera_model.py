@@ -114,32 +114,20 @@ class OpticsCorrection:
     User-facing parameters (physically intuitive):
         f_lab : lab focal length [pixels]  (from LUT mean IFOV)
         f     : in-flight focal length [pixels]
-        cx    : across-track PP shift [pixels] FROM LAB OPTICAL AXIS
-        cy    : along-track  PP shift [pixels] FROM LAB OPTICAL AXIS
-
-    cx/cy convention:
-        The lab angle LUT already encodes the optical axis position (the
-        zero-angle crossing, e.g. pixel 627.78).  cx and cy are DELTAS
-        from that lab-calibrated position — NOT absolute pixel coordinates
-        and NOT relative to the detector geometric center.
-
-        cx = 0  → optical axis is where the lab measured it
-        cx = +1 → optical axis shifted 1 pixel rightward since lab cal
-        cy = +1 → optical axis shifted 1 pixel in +Y camera direction
+        cx    : across-track PP shift [pixels]
+        cy    : along-track  PP shift [pixels]
 
     Internally converted to the tangent-space affine:
         s   = f / f_lab                      focal ratio
         Δcx = cx * pixel_pitch_tan           XT PP shift in tangent units
         Δcy = cy * pixel_pitch_tan           AT PP shift in tangent units
 
-    The focal scaling pivots around the lab optical axis (zero-angle pixel),
-    which is physically correct: thermal expansion scales angles from the
-    optical axis outward.
+    The conversion happens in bind() once the pixel pitch is known from the LUT.
     """
     f_lab: float = 1762.2    # lab focal length [pixels]
     f: float = 1762.2        # in-flight focal length [pixels]
-    cx: float = 0.0          # across-track PP shift [pixels] from lab
-    cy: float = 0.0          # along-track  PP shift [pixels] from lab
+    cx: float = 0.0          # across-track PP shift [pixels]
+    cy: float = 0.0          # along-track  PP shift [pixels]
 
     # Derived tangent-space parameters (set by bind())
     s: float = 1.0
@@ -222,18 +210,10 @@ class PushbroomCamera:
         mean_ifov = np.mean(np.diff(self.angles_deg))
         smile_amp_arcsec = (np.ptp(self.smile.evaluate_deg(self.tan_angles))
                             * 3600.0)
-
-        # Report the zero-angle crossing (optical axis position from lab LUT)
-        zero_pixel = float(np.interp(0.0, self.angles_rad, self.pixel_indices))
-        geom_center = (self.num_pixels - 1) / 2.0
-
         c = self.correction
         print(f"  Camera: {self.num_pixels} px, FOV={fov:.2f}°, "
               f"IFOV={mean_ifov*1000:.1f} mrad, "
               f"smile={smile_amp_arcsec:.1f}\"")
-        print(f"  Optical axis (lab): pixel {zero_pixel:.2f} "
-              f"(detector center={geom_center:.1f}, "
-              f"offset={zero_pixel - geom_center:+.2f} px)")
         if c.f != c.f_lab or c.cx != 0.0 or c.cy != 0.0:
             delta_f_ppm = (c.s - 1.0) * 1e6
             print(f"  Optics correction: f={c.f:.2f} px "
