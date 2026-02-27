@@ -8,16 +8,16 @@ camera:
   sensor_width_px: 1240            # pixels per scanline
   distortion:                       # Brown-Conrady model
     k1: 0.396332
-    k2:  0.180911
-    p1:  -0.001132
-    p2:  -0.184947
+    k2: 0.180911
+    p1: 0 # -0.001132
+    p2: 0 #  -0.184947
 
 mounting:
   # Nominal mounting matrix: body-NED [fwd, right, down] → camera [x, y, z]
   # Typical nadir pushbroom: x=right-wing, y=forward, z=down
   matrix:
-    - [ 0,  -1,  0]
-    - [1,  0,  0]
+    - [ 0,  1,  0]
+    - [-1,  0,  0]
     - [ 0,  0,  1]
   # Boresight fine-correction angles applied ON TOP of mounting matrix (degrees)
   boresight_roll:  -0.3693
@@ -41,7 +41,7 @@ inputs:
 
 outputs:
   ortho_path: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/Orthos/L5/L5_rgb_ortho.tif"
-  gsd: 0.4            # output pixel spacing (metres) in the output CRS
+  gsd: 2.0            # output pixel spacing (metres) in the output CRS
 
 crs:
   input_sbet: "EPSG:4326"   # WGS84 geodetic (SBET is always WGS84)
@@ -50,7 +50,7 @@ crs:
 
 processing:
   tile_size: 512             # output tile edge length (pixels)
-  num_workers: 2             # ProcessPoolExecutor workers
+  num_workers: 4             # ProcessPoolExecutor workers
   max_iterations: 20         # Newton convergence ceiling
   convergence_tol: 1.0e-7   # along-track angle tolerance (rad) ≈ 0.02 px @ f=12500
   nodata: -99999

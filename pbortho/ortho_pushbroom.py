@@ -810,5 +810,5 @@ def main(config_path: str = "config.yaml"):
 
 
 if __name__ == "__main__":
-    cfg_file = "pbortho/config.yaml" #if len(sys.argv) <= 1 else sys.argv[1]
+    cfg_file = "pbortho/pbortho_config.yaml" #if len(sys.argv) <= 1 else sys.argv[1]
     main(cfg_file)
