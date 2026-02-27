@@ -8,23 +8,23 @@
 # --- Input / Output Paths ---------------------------------------------------
 paths:
   # Applanix SBET binary (17 double-precision fields per record, NED body frame)
-  sbet: "/data/flight01/sbet_flight01.out"
+  sbet: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/SBET_Clmbr_Cal_ODyN_v8.out" 
 
   # ENVI BIL hyperspectral image + sidecar header
-  bil_image: "/data/flight01/hyper_flight01.bil"
-  bil_header: "/data/flight01/hyper_flight01.hdr"
+  bil_image: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.bil"
+  bil_header: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.hdr"
 
   # Per-line exposure times: TEXT file, one GPS time per line,
   # in units of 10 microseconds (1e-5 seconds).
   # Example: a value of 123456789012 = 1234567.89012 GPS seconds.
-  exposure_times: "/data/flight01/exposure_times.txt"
+  exposure_times: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.bil.timing"
 
   # Lab-measured across-track angles: CSV with one angle [degrees] per line,
   # one entry per pixel (0-indexed), monotonically increasing.
-  angle_lut: "/data/flight01/AV4_acrosstrack_PSF_2024_valid_angles.csv"
+  angle_lut: "AV4_acrosstrack_PSF_2024_valid_angles.csv"
 
   # Digital Surface Model (GeoTIFF, ellipsoidal heights)
-  dsm: "/data/flight01/dsm_ellipsoidal.tif"
+  dsm: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/wgs84/DSM_converted_ss3d/DSM_mosaic_M024_Clbr_L3_6_wgs84_ellipsoid_reframe.tif"
 
   # Output orthorectified GeoTIFF
   output: "/data/flight01/ortho_flight01.tif"
@@ -32,10 +32,10 @@ paths:
 # --- Coordinate Reference Systems -------------------------------------------
 crs:
   # CRS of the DSM (EPSG code)
-  dsm_epsg: 32632          # UTM Zone 32N (WGS84)
+  dsm_epsg: 4979          # WGS84 geodetic (ellipsoidal heights)
 
   # CRS of the output orthophoto
-  output_epsg: 32632        # UTM Zone 32N (WGS84)
+  output_epsg: 4979        # WGS84 geodetic (ellipsoidal heights)
 
   # SBET datum (always WGS84 for Applanix)
   sbet_ellipsoid: "WGS84"
