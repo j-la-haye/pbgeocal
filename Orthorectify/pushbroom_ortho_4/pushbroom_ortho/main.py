@@ -35,6 +35,7 @@ def main():
         config_path = str(Path(__file__).parent / "config.yaml")
 
     print(f"Loading configuration: {config_path}")
+    config_path = "Orthorectify/pushbroom_ortho_configs/pushbroom_ortho_pipeline.yaml"
     config = load_config(config_path)
 
     t0 = time.time()

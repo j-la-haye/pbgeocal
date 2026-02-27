@@ -1,148 +1,86 @@
 # =============================================================================
-# Pushbroom Orthorectification Pipeline - Configuration
-# =============================================================================
-# Bottom-up (output-to-input) orthorectification of hyperspectral pushbroom
-# imagery using decoupled across-track/along-track camera calibration.
+# Pushbroom Orthorectification Configuration
 # =============================================================================
 
-# --- Input / Output Paths ---------------------------------------------------
-paths:
-  # Applanix SBET binary (17 double-precision fields per record, NED body frame)
-  sbet: "/data/flight01/sbet_flight01.out"
-
-  # ENVI BIL hyperspectral image + sidecar header
-  bil_image: "/data/flight01/hyper_flight01.bil"
-  bil_header: "/data/flight01/hyper_flight01.hdr"
-
-  # Per-line exposure times: TEXT file, one GPS time per line,
-  # in units of 10 microseconds (1e-5 seconds).
-  # Example: a value of 123456789012 = 1234567.89012 GPS seconds.
-  exposure_times: "/data/flight01/exposure_times.txt"
-
-  # Lab-measured across-track angles: CSV with one angle [degrees] per line,
-  # one entry per pixel (0-indexed), monotonically increasing.
-  angle_lut: "/data/flight01/AV4_acrosstrack_PSF_2024_valid_angles.csv"
-
-  # Digital Surface Model (GeoTIFF, ellipsoidal heights)
-  dsm: "/data/flight01/dsm_ellipsoidal.tif"
-
-  # Output orthorectified GeoTIFF
-  output: "/data/flight01/ortho_flight01.tif"
-
-# --- Coordinate Reference Systems -------------------------------------------
-crs:
-  # CRS of the DSM (EPSG code)
-  dsm_epsg: 32632          # UTM Zone 32N (WGS84)
-
-  # CRS of the output orthophoto
-  output_epsg: 32632        # UTM Zone 32N (WGS84)
-
-  # SBET datum (always WGS84 for Applanix)
-  sbet_ellipsoid: "WGS84"
-
-# --- Camera Model (Decoupled) -----------------------------------------------
-# Across-track: Lab-measured angle LUT (loaded from paths.angle_lut)
-# Along-track:  Smile polynomial  θ_at(xt) = a·xt² + b·xt + c
-#               where xt = tan(θ_across_track), angles in degrees.
-#
-# The constant c is the boresight along-track offset (sensor line not at θ_y=0).
-# The quadratic a captures the parabolic smile curvature.
-# The linear b captures asymmetric tilt of the smile.
 camera:
-  smile:
-    a: -0.0036022          # quadratic (smile curvature)
-    b:  0.0003831          # linear (smile tilt)
-    c:  0.6025328          # constant (along-track boresight offset, degrees)
+  focal_length_px: 12500.0          # focal length in pixels
+  principal_point_x: 4096.0         # cross-track principal point (px)
+  sensor_width_px: 8192             # pixels per scanline
+  distortion:                       # Brown-Conrady model
+    k1: -1.5e-8
+    k2:  3.0e-15
+    p1:  0.0
+    p2:  0.0
 
-  # In-flight focal length and principal point correction.
-  #
-  # The lab LUT defines the reference geometry, including the optical axis
-  # position (the zero-angle crossing, at pixel ~627.78 for this sensor,
-  # NOT the geometric detector center at 619.5).
-  #
-  # In flight, thermal expansion and pressure changes shift f and the
-  # principal point.  These parameters are estimated separately (e.g. from
-  # tie points in an external bundle adjustment) and entered here as fixed
-  # values for the ortho run.
-  #
-  # f_lab : effective lab focal length in pixels (from LUT mean IFOV)
-  # f     : in-flight focal length in pixels (= f_lab for no correction)
-  # cx    : across-track PP shift [pixels] relative to lab-calibrated
-  #         optical axis position.  cx=0 means no shift from lab.
-  #         Positive = optical axis moved rightward (toward higher pixel #).
-  # cy    : along-track PP shift [pixels] relative to lab.  cy=0 = no shift.
-  #         Positive = optical axis moved in +Y camera direction (backward).
-  #
-  # NOTE: cx is NOT an absolute pixel position.  The LUT already encodes
-  # where the optical axis falls (~pixel 627.78).  cx only captures
-  # the CHANGE from that lab reference due to in-flight conditions.
-  optics:
-    f_lab: 1762.2            # lab focal length [pixels] (from mean IFOV of angle LUT)
-    f:     1762.2            # in-flight focal length [pixels] (= f_lab if no correction)
-    cx:    0.0               # across-track PP shift [pixels] from lab optical axis (0 = no shift)
-    cy:    0.0               # along-track  PP shift [pixels] from lab optical axis (0 = no shift)
-
-# --- Mounting / Lever-Arm / Boresight ----------------------------------------
-# All values define the spatial and angular relationship between the IMU
-# (Applanix body frame, NED) and the camera sensor.
 mounting:
-  # Lever-arm from IMU to camera in the BODY frame [m]
-  # body frame: X-forward (North), Y-right (East), Z-down
-  lever_arm:
-    x:  0.120               # forward  (m)
-    y: -0.045               # right    (m)
-    z:  0.310               # down     (m)
+  # Nominal mounting matrix: body-NED [fwd, right, down] → camera [x, y, z]
+  # Typical nadir pushbroom: x=right-wing, y=forward, z=down
+  matrix:
+    - [ 0,  1,  0]
+    - [-1,  0,  0]
+    - [ 0,  0,  1]
+  # Boresight fine-correction angles applied ON TOP of mounting matrix (radians)
+  boresight_roll:  0.0
+  boresight_pitch: 0.0
+  boresight_yaw:   0.0
+  # Lever arm: IMU centre → camera projection centre, in body-NED frame [fwd, right, down] (m)
+  lever_arm: [0.15, -0.02, 0.35]
 
-  # Boresight angles: small rotations from body frame to camera frame [degrees]
-  # Applied as Rz(yaw) @ Ry(pitch) @ Rx(roll) on top of the mounting matrix
-  boresight:
-    roll:   0.015            # degrees, about body X (forward)
-    pitch: -0.032            # degrees, about body Y (right)
-    yaw:    0.008            # degrees, about body Z (down)
+inputs:
+  sbet_path:           "/data/flight/sbet.out"
+  bil_path:            "/data/imagery/line001.bil"
+  exposure_times_path: "/data/imagery/line001_times.txt"   # one GPS-second per line
+  dsm_path:            "/data/dsm/dsm_ellipsoidal.tif"     # ellipsoidal heights
 
-  # Mounting matrix: fixed rotation from body NED to camera frame
-  # Camera frame: X-right, Y-back, Z-down
-  # Body NED:     X-north (forward), Y-east (right), Z-down
+outputs:
+  ortho_path: "/data/output/ortho_line001.tif"
+  gsd: 0.10            # output pixel spacing (metres) in the output CRS
+
+crs:
+  input_sbet: "EPSG:4326"   # WGS84 geodetic (SBET is always WGS84)
+  dsm:        "EPSG:2056"   # CRS of the DSM raster (Swiss LV95)
+  output:     "EPSG:2056"   # target ortho CRS
+
+# ── Georeferencing fine-tuning ─────────────────────────────────────────
+# These parameters address systematic spatial offsets in the orthophoto.
+georef:
+  # Time offset (seconds) added to ALL exposure times before they are
+  # used to query the SBET trajectory.
   #
-  # For a forward-looking pushbroom with X-right, Y-back, Z-down:
-  #   cam_X = body_Y   (right = east)
-  #   cam_Y = -body_X  (back  = -north)
-  #   cam_Z = body_Z   (down  = down)
+  # Purpose: absorb the latency between the GPS PPS trigger and the
+  # actual mid-exposure instant.  Typical sources:
+  #   – camera electronics delay after PPS (often 0.2–2 ms)
+  #   – half the integration time (if times mark start-of-exposure)
+  #   – systematic clock drift between GPS receiver and frame grabber
   #
-  # Mounting matrix M:  P_cam = M @ P_body
-  mounting_matrix:
-    - [ 0.0,  1.0,  0.0]    # cam_X = body_Y
-    - [-1.0,  0.0,  0.0]    # cam_Y = -body_X
-    - [ 0.0,  0.0,  1.0]    # cam_Z = body_Z
+  # Sign convention:
+  #   positive  →  shifts the image FORWARD  along the flight direction
+  #   negative  →  shifts the image BACKWARD along the flight direction
+  #
+  # Calibration procedure:
+  #   1. Orthorectify with time_offset = 0.
+  #   2. Identify a sharp ground feature (road marking, building corner).
+  #   3. Measure the along-track displacement Δd (metres) in the ortho.
+  #   4. Compute: time_offset ≈ Δd / ground_speed
+  #      (ground_speed ~ 60 m/s for typical aerial survey)
+  #   5. Re-run and verify.
+  time_offset: 0.0
 
-# --- Processing Parameters --------------------------------------------------
 processing:
-  # Output ground sample distance (meters)
-  output_gsd: 0.50
-
-  # Tile size for parallel processing (pixels)
-  tile_size: 512
-
-  # Number of parallel worker processes
-  num_workers: 8
-
-  # Newton iteration parameters for time solving
-  newton:
-    max_iterations: 15
-    convergence_threshold: 1.0e-09   # seconds
-    numerical_dt: 1.0e-06            # seconds, for numerical Jacobian
-
-  # Resampling method for BIL pixel lookup: "bilinear" or "nearest"
-  resampling: "bilinear"
-
-  # Visibility / occlusion check
-  visibility:
-    enabled: true
-    # Number of samples along the sensor-to-ground ray for occlusion test
-    num_ray_samples: 50
-    # Height tolerance above ray (meters) — DSM cells this far above the ray
-    # are considered occluding
-    height_tolerance: 0.5
-
-  # NODATA value for output GeoTIFF
+  tile_size: 512             # output tile edge length (pixels)
+  num_workers: 8             # ProcessPoolExecutor workers
+  max_iterations: 20         # Newton convergence ceiling
+  convergence_tol: 1.0e-7    # along-track angle tolerance (rad) ≈ 0.02 px @ f=12500
   nodata: 0
+
+  # ── Anti-curtaining parameters ──────────────────────────────────────
+  # Multiplier on the geometric half-swath width for the pre-filter.
+  # 1.0 = exact FOV boundary.  1.2 = 20% buffer for terrain relief and
+  # aircraft roll.  Increase if valid edge pixels are being clipped.
+  swath_buffer: 1.2
+
+  # Absolute residual threshold for the Newton post-filter (radians).
+  # Points where |along-track residual| > this are rejected even if
+  # the solver flagged them as "converged".
+  # Default: 100 × convergence_tol.  Tighten if curtain remnants persist.
+  residual_tolerance: 1.0e-5
