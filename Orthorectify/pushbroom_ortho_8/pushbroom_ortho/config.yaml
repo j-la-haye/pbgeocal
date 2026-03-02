@@ -8,35 +8,36 @@
 # --- Input / Output Paths ---------------------------------------------------
 paths:
   # Applanix SBET binary (17 double-precision fields per record, NED body frame)
-  #sbet: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/SBET_Clmbr_Cal_ODyN_v8.out" 
-  sbet: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/M_001_CH_20250427_100239_OutC_POSTPROCESSING_SBET_Body_Frame.out"
+  sbet: "/data/flight01/sbet_flight01.out"
 
   # ENVI BIL hyperspectral image + sidecar header
-  bil_image: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.bil"
-  bil_header: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.hdr"
+  bil_image: "/data/flight01/hyper_flight01.bil"
+  bil_header: "/data/flight01/hyper_flight01.hdr"
 
   # Per-line exposure times: TEXT file, one GPS time per line,
   # in units of 10 microseconds (1e-5 seconds).
   # Example: a value of 123456789012 = 1234567.89012 GPS seconds.
-  exposure_times: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.bil.timing"
+  exposure_times: "/data/flight01/exposure_times.txt"
 
   # Lab-measured across-track angles: CSV with one angle [degrees] per line,
   # one entry per pixel (0-indexed), monotonically increasing.
-  angle_lut: "Orthorectify/pushbroom_ortho_configs/AV4_acrosstrack_PSF_2024_valid_angles.csv"
+  angle_lut: "/data/flight01/AV4_acrosstrack_PSF_2024_valid_angles.csv"
 
   # Digital Surface Model (GeoTIFF, ellipsoidal heights)
-  dsm: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/wgs84/DSM_converted_ss3d/DSM_mosaic_M024_Clbr_L3_6_wgs84_ellipsoid_reframe.tif"
+  dsm: "/data/flight01/dsm_ellipsoidal.tif"
 
-  # Output orthorectified GeoTIFF - {a},{b},{c},{fl},{cx},{cy},{gsd} are auto-substituted from camera.smile/optics/processing at load time.
-  output: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/Orthos/L5/L5_smile_Test_a_{a}_b_{b}_c_{c}_fl_{fl}_cx_{cx}_cy_{cy}_gsd_{gsd}.tif"
+  # Output orthorectified GeoTIFF
+  output: "/data/flight01/ortho_flight01.tif"
 
 # --- Coordinate Reference Systems -------------------------------------------
 crs:
-  # CRS of the DSM (EPSG code)
-  dsm_epsg: 4979          # UTM Zone 32N (WGS84)
+  # CRS of the DSM GeoTIFF (geographic or projected EPSG code)
+  # Geographic (e.g. EPSG:4326/4979) and projected (e.g. UTM) are both supported.
+  dsm_epsg: 4979             # WGS84 3D geographic (lon, lat, h)
 
-  # CRS of the output orthophoto
-  output_epsg: 2056        # LV95 / CH1903+ (EPSG:2056)
+  # CRS of the output orthophoto — MUST be projected (metric), e.g. UTM.
+  # A geographic output CRS is not supported (metric GSD requires metres).
+  output_epsg: 32632          # UTM Zone 32N (WGS84)
 
   # SBET datum (always WGS84 for Applanix)
   sbet_ellipsoid: "WGS84"
@@ -46,19 +47,14 @@ crs:
 # Along-track:  Smile polynomial  θ_at(xt) = a·xt² + b·xt + c
 #               where xt = tan(θ_across_track), angles in degrees.
 #
-#  # Along-track smile model: θ_at(xt) = a·xt² + b·xt + c, where xt = tan(θ_across_track).
-#a = -0.0036022
-#b = 0.0003831
-#c = 0.6025328
-#at = a * xt**2 + b*xt + c
 # The constant c is the boresight along-track offset (sensor line not at θ_y=0).
 # The quadratic a captures the parabolic smile curvature.
 # The linear b captures asymmetric tilt of the smile.
 camera:
   smile:
-    a: -0.004          # quadratic (smile curvature)
-    b: -0.2 #0.0003          # linear (smile tilt)
-    c:  3.0         # constant (along-track boresight offset, degrees)
+    a: -0.0036022          # quadratic (smile curvature)
+    b:  0.0003831          # linear (smile tilt)
+    c:  0.6025328          # constant (along-track boresight offset, degrees)
 
   # In-flight focal length and principal point correction.
   #
@@ -79,14 +75,23 @@ camera:
   # cy    : along-track PP shift [pixels] relative to lab.  cy=0 = no shift.
   #         Positive = optical axis moved in +Y camera direction (backward).
   #
-  # NOTE: cx is NOT an absolute pixel position.  The LUT already encodes
-  # where the optical axis falls (~pixel 627.78).  cx only captures
-  # the CHANGE from that lab reference due to in-flight conditions.
+  # The derived optimisation parameters are:
+  #   kf = f_lab / f    (focal length scale factor, ≈ 1)
+  #   δx = cx / f       (across-track PP angular shift in tangent-space)
+  #   δy = cy / f       (along-track PP angular shift in tangent-space)
   optics:
-    f_lab: 1732.63             # lab focal length [pixels] (from mean IFOV of angle LUT)
-    f:     1697.63            # in-flight focal length [pixels] (= f_lab if no correction)
-    cx:    -30.5              # across-track PP shift [pixels] from lab optical axis (0 = no shift)
+    f_lab: 1762.2            # lab focal length [pixels] (from mean IFOV of angle LUT)
+    f:     1762.2            # in-flight focal length [pixels] (= f_lab if no correction)
+    cx:    0.0               # across-track PP shift [pixels] from lab optical axis (0 = no shift)
     cy:    0.0               # along-track  PP shift [pixels] from lab optical axis (0 = no shift)
+
+  # BIL sample offset: when the angle LUT covers only the VALID pixels
+  # (a subset of the full detector), first_valid_pixel is the BIL sample
+  # index corresponding to LUT pixel 0.
+  #
+  # Example: if BIL has 2048 samples and the angle LUT starts at BIL
+  #          sample 404, set first_valid_pixel: 404
+  #
   # If the LUT covers the full BIL detector width, set to 0.
   first_valid_pixel: 0
 
@@ -97,16 +102,16 @@ mounting:
   # Lever-arm from IMU to camera in the BODY frame [m]
   # body frame: X-forward (North), Y-right (East), Z-down
   lever_arm:
-    x:  -0.05493              # forward  (m)
-    y: 0.25697              # right    (m)
-    z:  0.26223              # down     (m)
- 
+    x:  0.120               # forward  (m)
+    y: -0.045               # right    (m)
+    z:  0.310               # down     (m)
+
   # Boresight angles: small rotations from body frame to camera frame [degrees]
   # Applied as Rz(yaw) @ Ry(pitch) @ Rx(roll) on top of the mounting matrix
   boresight:
-    roll:   -0.292           # degrees, about body X (forward)
-    pitch: 0.178          # degrees, about body Y (right)
-    yaw:   -0.10275        # degrees, about body Z (down)
+    roll:   0.015            # degrees, about body X (forward)
+    pitch: -0.032            # degrees, about body Y (right)
+    yaw:    0.008            # degrees, about body Z (down)
 
   # Mounting matrix: fixed rotation from body NED to camera frame
   # Camera frame: X-right, Y-back, Z-down
@@ -126,13 +131,13 @@ mounting:
 # --- Processing Parameters --------------------------------------------------
 processing:
   # Output ground sample distance (meters)
-  output_gsd: 0.5
+  output_gsd: 0.50
 
   # Tile size for parallel processing (pixels)
   tile_size: 512
 
   # Number of parallel worker processes
-  num_workers: 6
+  num_workers: 8
 
   # Newton iteration parameters for time solving
   newton:
@@ -153,4 +158,4 @@ processing:
     height_tolerance: 0.5
 
   # NODATA value for output GeoTIFF
-  nodata: -99999
+  nodata: 0

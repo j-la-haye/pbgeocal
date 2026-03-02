@@ -16,8 +16,8 @@ mounting:
   # Nominal mounting matrix: body-NED [fwd, right, down] → camera [x, y, z]
   # Typical nadir pushbroom: x=right-wing, y=forward, z=down
   matrix:
-    - [ 0,  1,  0]
-    - [-1,  0,  0]
+    - [ 0,  -1,  0]
+    - [1,  0,  0]
     - [ 0,  0,  1]
   # Boresight fine-correction angles applied ON TOP of mounting matrix (degrees)
   boresight_roll:  -0.3693
