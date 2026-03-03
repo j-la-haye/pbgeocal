@@ -119,14 +119,33 @@ def load_config(config_path: str) -> PipelineConfig:
         raw = yaml.safe_load(f)
 
     # --- Paths ---------------------------------------------------------------
+    
+
+    # --- Paths ---------------------------------------------------------------
+    #smile_raw = raw['camera']['smile']
+    optics_raw = raw['camera'].get('optics', {})
+    f_val = float(raw['camera'].get('focal_length',1732.6317))
+    ppx_val = float(raw['camera'].get('principal_point',628.0674))
+
     p = raw['paths']
+    output = p['output'].format(
+        #a=float(smile_raw['a']),
+        # b=float(smile_raw['b']),
+        # c=float(smile_raw['c']),
+        fl=f_val,
+        ppx=ppx_val,
+        #cx=float(optics_raw.get('cx', 0.0)),
+        #cy=float(optics_raw.get('cy', 0.0)),
+        gsd=float(raw['processing']['output_gsd']),
+    )
+    
     paths = PathsConfig(
         sbet=p['sbet'],
         bil_image=p['bil_image'],
         bil_header=p['bil_header'],
         exposure_times=p['exposure_times'],
         dsm=p['dsm'],
-        output=p['output'],
+        output=output,
     )
 
     # --- CRS -----------------------------------------------------------------

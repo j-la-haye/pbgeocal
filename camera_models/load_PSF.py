@@ -187,7 +187,7 @@ ppx =  np.argmin(abs(xt)) + 0.5
 # plt.plot(full_pixel_coords[22:1263],angles[22:1263]-angle_test[22:1263], label='Horizontal pixel measurements')
 # plt.legend()
 
-norm_pixel_coords = ((pixel_coords - (image_width/2))  / image_width)
+norm_pixel_coords = ((pixel_coords - (ppx))  / image_width)
 
 # range of values from -21 to 20 of length 1280
 
@@ -213,6 +213,48 @@ acta_est,dx_fov = compute_horizontal_pixel_coordinates(xt,ppx, focal_length)
 b = np.polyfit(norm_pixel_coords, -dy_fov, deg=5)
 a = np.polyfit(norm_pixel_coords, -dx_fov, deg=5)
 
+dx_hat = np.polyval(a, norm_pixel_coords)
+dy_hat = np.polyval(b, norm_pixel_coords)
+
+# Calculate along-track angles from vertical pixel coordinates
+dx_rad,dx_deg = compute_horizontal_angles( dx_hat,norm_pixel_coords,norm_pixel_coords.shape[0], ppx,focal_length)
+dy_rad,dy_deg = compute_vertical_angles( dy_hat,focal_length)
+
+a_stevi_opt,b_stevi_opt = [-2.08218,0.696484,1.79864,12.1839,-82.833,79.262],[-0.69004,29.046189234830692,3.6465821917570986,156.65243295605177,25.441750413122595,-70.08173137689941]
+
+# reverse the order of the coefficients
+a_stevi_opt = a_stevi_opt[::-1]
+b_stevi_opt = b_stevi_opt[::-1]
+
+dx_stevi_opt = np.polyval(a_stevi_opt, norm_pixel_coords)
+dy_stevi_opt = np.polyval(b_stevi_opt, norm_pixel_coords)
+ppx_opt = 628.492
+focal_length_opt = 1690.349
+
+
+#convert optimized dx and dy to angles
+dx_stevi_opt_rad,dx_stevi_opt_deg = compute_horizontal_angles( dx_stevi_opt,norm_pixel_coords,norm_pixel_coords.shape[0], ppx_opt,focal_length_opt)
+dy_stevi_opt_rad,dy_stevi_opt_deg = compute_vertical_angles( dy_stevi_opt,focal_length_opt)
+
+# Plot xt and acta_opt_deg vs pixel coords and alta_opt_deg and at vs pixel coords
+# plt.figure()
+# plt.plot(pixel_coords, xt, label='Measured across-track angles')
+# plt.plot(pixel_coords, dx_stevi_opt_deg, label='Optimized across-track angles')
+# plt.plot(pixel_coords, dx_deg, label='Computed across-track angles')
+# plt.xlabel('Pixel Coordinate')
+# plt.ylabel('Angle (degrees)')
+# plt.legend()
+
+# plt.figure()
+# plt.plot(pixel_coords, -at, label='Measured along-track angles')
+# plt.plot(pixel_coords, -dy_stevi_opt_deg, label='Optimized along-track angles')
+# plt.plot(pixel_coords, dy_deg, label='Computed along-track angles')
+# plt.xlabel('Pixel Coordinate')
+# plt.ylabel('Angle (degrees)')
+# plt.legend()
+# plt.show()
+
+
 # Optimized acta and alta coefficients
 #Focal length: 1696.39x
 #Optical-center: 624.885px
@@ -232,137 +274,138 @@ norm_pixel_coords_1241 = ((pixel_coords_1241 - (image_width/2))  / image_width)
 #opt_dy_poly = [17.88961410522461, 2.622515916824341,-165.19052124023438,-7.4387969970703125,-54.69880676269531,17.86543083190918]
 
 # read optimized coefficients from csv
-cam_model_params = '/Volumes/fts-addlidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/Optimized_Model/Mar_25_Latest/steviapp_5th_order_xy_distortion_coefficients_1234_31_3_25.csv'
+#cam_model_params = '/Volumes/fts-addlidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/Optimized_Model/Mar_25_Latest/steviapp_5th_order_xy_distortion_coefficients_1234_31_3_25.csv'
 
-cam_model  = pd.read_csv(cam_model_params, comment='#')
+# cam_model  = pd.read_csv(cam_model_params, comment='#')
 
-opt_flen = cam_model['dx'].iloc[0]
-#opt_flen = float(opt_flen)
-opt_ppx = cam_model['dy'].iloc[0] - 2.2 #(shift_l-shift_r)/2
+# opt_flen = cam_model['dx'].iloc[0]
+# #opt_flen = float(opt_flen)
+# opt_ppx = cam_model['dy'].iloc[0] - 2.2 #(shift_l-shift_r)/2
 
-# reverse the order of the coefficients
-opt_dx_poly = list(cam_model['dx'].iloc[1:])#[::-1])
-opt_dy_poly = list(cam_model['dy'].iloc[1:])#[::-1])
+# # reverse the order of the coefficients
+# opt_dx_poly = list(cam_model['dx'].iloc[1:])#[::-1])
+# opt_dy_poly = list(cam_model['dy'].iloc[1:])#[::-1])
 
-dx_hat = np.polyval(opt_dx_poly, norm_pixel_coords_1241)
-dy_hat = np.polyval(opt_dy_poly, norm_pixel_coords_1241)
+# dx_hat = np.polyval(opt_dx_poly, norm_pixel_coords_1241)
+# dy_hat = np.polyval(opt_dy_poly, norm_pixel_coords_1241)
 
-# Calculate along-track angles from vertical pixel coordinates
-acta_opt_rad,acta_opt_deg = compute_horizontal_angles( dx_hat,norm_pixel_coords_1241,norm_pixel_coords_1241.shape[0], opt_ppx,opt_flen)
-alta_opt_rad,alta_opt_deg = compute_vertical_angles( dy_hat,opt_flen)
+# # Calculate along-track angles from vertical pixel coordinates
+# acta_opt_rad,acta_opt_deg = compute_horizontal_angles( dx_hat,norm_pixel_coords,norm_pixel_coords.shape[0], ppx,focal_length)
+# alta_opt_rad,alta_opt_deg = compute_vertical_angles( dy_hat,opt_flen)
 
+# #
 
-#a_opt,b_opt,c_opt = np.polyfit(acta_opt_rad, alta_opt_rad, deg=2)
+# #a_opt,b_opt,c_opt = np.polyfit(acta_opt_rad, alta_opt_rad, deg=2)
 
-#----------------------------------------------------------------------------------#
-# Re-compute 5th order polynomial coefficients for dx and dy for 1241 sensor width #
+# #----------------------------------------------------------------------------------#
+# # Re-compute 5th order polynomial coefficients for dx and dy for 1241 sensor width #
 
-dy_fov_1241,alta_est_1241 = compute_vertical_pixel_coordinates(alta_opt_deg,opt_ppx, opt_flen)
-#dy_mflen = compute_vertical_pixel_coordinates(,ppx, focal_length_mean, image_width)
+# dy_fov_1241,alta_est_1241 = compute_vertical_pixel_coordinates(alta_opt_deg,opt_ppx, opt_flen)
+# #dy_mflen = compute_vertical_pixel_coordinates(,ppx, focal_length_mean, image_width)
 
-dx_fov_1241,acta_est_1241 = compute_horizontal_pixel_coordinates(acta_opt_deg,opt_ppx, opt_flen)
-#hor_angles_mean,dx_mflen = compute_horizontal_pixel_coordinates(xt,ppx, focal_length_mean, image_width)
+# dx_fov_1241,acta_est_1241 = compute_horizontal_pixel_coordinates(acta_opt_deg,opt_ppx, opt_flen)
+# #hor_angles_mean,dx_mflen = compute_horizontal_pixel_coordinates(xt,ppx, focal_length_mean, image_width)
 
-a5,a4,a3,a2,a1,a0= np.polyfit(norm_pixel_coords_1241, dy_fov_1241, deg=5)
-b5,b4,b3,b2,b1,b0 = np.polyfit(norm_pixel_coords_1241, dx_fov_1241, deg=5)
+# a5,a4,a3,a2,a1,a0= np.polyfit(norm_pixel_coords_1241, dy_fov_1241, deg=5)
+# b5,b4,b3,b2,b1,b0 = np.polyfit(norm_pixel_coords_1241, dx_fov_1241, deg=5)
 
-# write vertical and horizontal fit polynomial coefficients to one csv with 2 columns with header (dxh,dyh) add focal length to header with # comment
-# Write vertical and horizontal fit polynomial coefficients to one csv with 2 columns with header (dxh,dyh) add focal length to header with # comment
-write=1
-if write:
-    with open('/Volumes/fts-addlidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/5th_order_xy_distortion_coefficients_sw_{:.1f}_fov_{:.2f}.csv'.format(norm_pixel_coords_1241.shape[0],opt_ppx), 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow([f'# Focal length: {opt_flen:.2f} pixels'])
-        writer.writerow([f'# Principal point: {opt_ppx:.2f} pixels'])
-        writer.writerow(['# order', 'dx', 'dy'])
-        coefficients_b = [b5, b4, b3, b2, b1, b0]
-        coefficients_a = [a5, a4, a3, a2, a1, a0]
-        for i in range(6):
-            writer.writerow([f'{5-i}th',coefficients_b[i], coefficients_a[i]])
+# # write vertical and horizontal fit polynomial coefficients to one csv with 2 columns with header (dxh,dyh) add focal length to header with # comment
+# # Write vertical and horizontal fit polynomial coefficients to one csv with 2 columns with header (dxh,dyh) add focal length to header with # comment
+# write=1
+# if write:
+#     with open('/Volumes/fts-addlidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/5th_order_xy_distortion_coefficients_sw_{:.1f}_fov_{:.2f}.csv'.format(norm_pixel_coords_1241.shape[0],opt_ppx), 'w', newline='') as csvfile:
+#         writer = csv.writer(csvfile)
+#         writer.writerow([f'# Focal length: {opt_flen:.2f} pixels'])
+#         writer.writerow([f'# Principal point: {opt_ppx:.2f} pixels'])
+#         writer.writerow(['# order', 'dx', 'dy'])
+#         coefficients_b = [b5, b4, b3, b2, b1, b0]
+#         coefficients_a = [a5, a4, a3, a2, a1, a0]
+#         for i in range(6):
+#             writer.writerow([f'{5-i}th',coefficients_b[i], coefficients_a[i]])
     
-    # with open('/Volumes/fts-addlidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/5th_order_xy_distortion_coefficients_1241_width_opt_fov_{:.2f}.csv'.format(opt_flen), 'w', newline='') as csvfile:
-    #     writer = csv.writer(csvfile)
-    #     writer.writerow([f'# Optimized Focal length: {opt_flen:.2f} pixels'])
-    #     writer.writerow(['# order', 'dx', 'dy'])
-    #     coefficients_a = opt_dx_poly
-    #     coefficients_b = opt_dy_poly
-    #     for i in range(6):
-    #         writer.writerow([f'{5-i}th',coefficients_a[i], coefficients_b[i]])
+#     # with open('/Volumes/fts-addlidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/5th_order_xy_distortion_coefficients_1241_width_opt_fov_{:.2f}.csv'.format(opt_flen), 'w', newline='') as csvfile:
+#     #     writer = csv.writer(csvfile)
+#     #     writer.writerow([f'# Optimized Focal length: {opt_flen:.2f} pixels'])
+#     #     writer.writerow(['# order', 'dx', 'dy'])
+#     #     coefficients_a = opt_dx_poly
+#     #     coefficients_b = opt_dy_poly
+#     #     for i in range(6):
+#     #         writer.writerow([f'{5-i}th',coefficients_a[i], coefficients_b[i]])
         
-    # with open('/Volumes/fts-addlidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/2nd_order_angle_distortion_coefficients_1241_sw_opt_flen_{:.2f}_ppx_{:.2f}_.csv'.format(opt_flen,ppx), 'w', newline='') as csvfile:
-    #     writer = csv.writer(csvfile)
-    #     writer.writerow([f'# Focal length: {opt_flen:.2f} pixels'])
-    #     coefficients = [a_opt,b_opt,c_opt]
-    #     writer.writerow(['#a_opt', 'b_opt', 'c_opt'])
-    #     # Write the coefficients to the file with 7 decimal places
-    #     writer.writerow([f'{coeff:.7f}' for coeff in coefficients])
-        #np.savetxt(csvfile, np.column_stack((a_opt, b_opt,c_opt)), delimiter=',', fmt='%f')
+#     # with open('/Volumes/fts-addlidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/2nd_order_angle_distortion_coefficients_1241_sw_opt_flen_{:.2f}_ppx_{:.2f}_.csv'.format(opt_flen,ppx), 'w', newline='') as csvfile:
+#     #     writer = csv.writer(csvfile)
+#     #     writer.writerow([f'# Focal length: {opt_flen:.2f} pixels'])
+#     #     coefficients = [a_opt,b_opt,c_opt]
+#     #     writer.writerow(['#a_opt', 'b_opt', 'c_opt'])
+#     #     # Write the coefficients to the file with 7 decimal places
+#     #     writer.writerow([f'{coeff:.7f}' for coeff in coefficients])
+#         #np.savetxt(csvfile, np.column_stack((a_opt, b_opt,c_opt)), delimiter=',', fmt='%f')
 
-     #write optimized angles(axta_opt and alta_opt) to csv with column header xt,at 
-    with open('/Volumes/fts-addlidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/Optimized_Model/April_9_25/optimized_angles_1241_sw_fov_opt_flen_{:.2f}_ppx_{:.2f}_.csv'.format(opt_flen,opt_ppx), 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['#xt(rad)', 'at(rad)'])
-        # Write the acta_opt in and alta_opt to the file with 8 decimal places
-        np.savetxt(csvfile, np.column_stack((-1*acta_opt_rad, alta_opt_rad)), delimiter=',', fmt='%.8f')
+#      #write optimized angles(axta_opt and alta_opt) to csv with column header xt,at 
+#     with open('/Volumes/fts-addlidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/Optimized_Model/April_9_25/optimized_angles_1241_sw_fov_opt_flen_{:.2f}_ppx_{:.2f}_.csv'.format(opt_flen,opt_ppx), 'w', newline='') as csvfile:
+#         writer = csv.writer(csvfile)
+#         writer.writerow(['#xt(rad)', 'at(rad)'])
+#         # Write the acta_opt in and alta_opt to the file with 8 decimal places
+#         np.savetxt(csvfile, np.column_stack((-1*acta_opt_rad, alta_opt_rad)), delimiter=',', fmt='%.8f')
 
-        #np.savetxt(csvfile, np.column_stack((acta_opt, alta_opt)), delimiter=',', fmt='%f')
+#         #np.savetxt(csvfile, np.column_stack((acta_opt, alta_opt)), delimiter=',', fmt='%f')
 
 
         
 
 
 # plot vertical pixel fit and original data
-plt.figure()
-plt.plot(norm_pixel_coords, dy_fov, label='Vertical pixel coordinates')
-plt.plot(norm_pixel_coords, np.polyval([a5, a4, a3, a2, a1, a0],norm_pixel_coords), label='Vertical pixel fit')
-plt.plot(norm_pixel_coords, dy_fov - np.polyval([a5, a4, a3, a2, a1, a0],norm_pixel_coords), label='Vertical fit diff')
-#plt.plot(pixel_coords, at, label='UZH pixel fit')
-plt.legend()
+# plt.figure()
+# plt.plot(norm_pixel_coords, dy_fov, label='Vertical pixel coordinates')
+# plt.plot(norm_pixel_coords, np.polyval([a5, a4, a3, a2, a1, a0],norm_pixel_coords), label='Vertical pixel fit')
+# plt.plot(norm_pixel_coords, dy_fov - np.polyval([a5, a4, a3, a2, a1, a0],norm_pixel_coords), label='Vertical fit diff')
+# #plt.plot(pixel_coords, at, label='UZH pixel fit')
+# plt.legend()
 
-# plot horizontal pixel fit and original data
-plt.figure()
+# # plot horizontal pixel fit and original data
+# plt.figure()
 
-plt.plot(norm_pixel_coords, dx_fov, label='Horizontal pixel coordinates')
-plt.plot(norm_pixel_coords, np.polyval([b5, b4, b3, b2, b1, b0], norm_pixel_coords), label='Horizontal pixel fit')
-plt.plot(norm_pixel_coords, dx_fov - np.polyval([b5, b4, b3, b2, b1, b0], norm_pixel_coords), label='Horizontal fit diff')
-plt.legend()
-
-
-plt.figure()
-#plt.scatter(acta_est, alta_est,label="estimated")
-plt.scatter(xt,at,label="lab angles")
-plt.plot(np.linspace(-21, 21, 1000), np.polyval([a,b,c],np.linspace(-21, 21, 1000)), "r", label="opt fit")
-plt.legend()
-
-plt.figure()
-#plt.scatter(acta_est, alta_est,label="estimated")
-plt.scatter(acta_opt, alta_opt,label="optimized")
-plt.plot(np.linspace(-21, 21, 1000), np.polyval([a_opt,b_opt,c_opt],np.linspace(-21, 21, 1000)), "r", label="opt fit")
-plt.legend()
-
-#plt.figure()
-#plt.plot(norm_pixel_coords, xt-hor_angles_est, label='diff angles fov {:.2f}'.format(fov))
-#plt.plot(norm_pixel_coords, xt, label='lab angles ')
-#plt.plot(norm_pixel_coords, hor_angles_est, label='angles fov {:.2f}'.format(fov))
-#plt.plot(norm_pixel_coords, hor_angles_mean, label='angles mean flen {:.2f}'.format(focal_length_mean))
-#plt.plot(norm_pixel_coords, xt-hor_angles_mean, label='diff angles mean {:.2f}'.format(focal_length_mean))
-#plt.legend()
+# plt.plot(norm_pixel_coords, dx_fov, label='Horizontal pixel coordinates')
+# plt.plot(norm_pixel_coords, np.polyval([b5, b4, b3, b2, b1, b0], norm_pixel_coords), label='Horizontal pixel fit')
+# plt.plot(norm_pixel_coords, dx_fov - np.polyval([b5, b4, b3, b2, b1, b0], norm_pixel_coords), label='Horizontal fit diff')
+# plt.legend()
 
 
-# Print results
-# for i, angle in enumerate(at):
-#     print(f"Angle: {angle:.2f}°")
-#     print(f"Vertical pixel coordinates: {vertical_pixels[i]/image_width:.6f} ")
-#     print()
+# plt.figure()
+# #plt.scatter(acta_est, alta_est,label="estimated")
+# plt.scatter(xt,at,label="lab angles")
+# plt.plot(np.linspace(-21, 21, 1000), np.polyval([a,b,c],np.linspace(-21, 21, 1000)), "r", label="opt fit")
+# plt.legend()
 
-# plot at
+# plt.figure()
+# #plt.scatter(acta_est, alta_est,label="estimated")
+# plt.scatter(acta_opt, alta_opt,label="optimized")
+# plt.plot(np.linspace(-21, 21, 1000), np.polyval([a_opt,b_opt,c_opt],np.linspace(-21, 21, 1000)), "r", label="opt fit")
+# plt.legend()
+
+# #plt.figure()
+# #plt.plot(norm_pixel_coords, xt-hor_angles_est, label='diff angles fov {:.2f}'.format(fov))
+# #plt.plot(norm_pixel_coords, xt, label='lab angles ')
+# #plt.plot(norm_pixel_coords, hor_angles_est, label='angles fov {:.2f}'.format(fov))
+# #plt.plot(norm_pixel_coords, hor_angles_mean, label='angles mean flen {:.2f}'.format(focal_length_mean))
+# #plt.plot(norm_pixel_coords, xt-hor_angles_mean, label='diff angles mean {:.2f}'.format(focal_length_mean))
+# #plt.legend()
+
+
+# # Print results
+# # for i, angle in enumerate(at):
+# #     print(f"Angle: {angle:.2f}°")
+# #     print(f"Vertical pixel coordinates: {vertical_pixels[i]/image_width:.6f} ")
+# #     print()
+
+# # plot at
 
 
 
 
-plt.figure()
-plt.plot(at)
-plt.plot(xt)
+# plt.figure()
+# plt.plot(at)
+# plt.plot(xt)
 
-# Add 3 degrees to the along-track angles
-at = at + 3
+# # Add 3 degrees to the along-track angles
+# at = at + 3
