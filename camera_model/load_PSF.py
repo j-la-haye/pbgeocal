@@ -150,19 +150,22 @@ def compute_horizontal_pixel_coordinates(hor_angles, principal_point,focal_lengt
 px = np.arange(1, 1235, 1)
 
 # Get CHB measurements
-data = loadmat('/Users/jlahaye/Work/AVIRIS4/AV4_GeoProc/debug/AV4_acrosstrack_PSF_2024.mat')
-angles = np.array(data['AV4_acrosstrack_PSF']['angles'])[:, 0]
+#data = loadmat('/Users/jlahaye/Work/AVIRIS4/AV4_GeoProc/debug/AV4_acrosstrack_PSF_2024.mat')
+#angles = np.array(data['AV4_acrosstrack_PSF']['angles'])[:, 0]
+
+df = pd.read_csv("/media/addLidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/AV4_acrosstrack_PSF_2024_valid_angles.csv",header=None,names=['across_track_angle'])
 
 #write angles to csv
-np.savetxt('angles.csv', angles, delimiter=',')
+#np.savetxt('angles.csv', df['across_track_angle'], delimiter=',')
 
-fwhms = np.array(data['AV4_acrosstrack_PSF']['fwhms'])[:, 0]
+#fwhms = np.array(data['AV4_acrosstrack_PSF']['fwhms'])[:, 0]
 
 # Probably it's pixels 30 to 1263 = index 29 to 1262
 # Cut to 1234 pixels (pixels that get light)
-xt = angles[22:1263]
+#xt = angles[22:1263]
+xt = df['across_track_angle'][:].values
 # Define indices for pixels that get light
-xt_idx= np.arange(22, 1263, 1)
+xt_idx= np.arange(len(xt)) # np.arange(22, 1263, 1)
 
 
 # Along-track
@@ -175,7 +178,7 @@ at = a * xt**2 + b*xt + c
 pixel_coords = np.arange(len(xt))
 image_width = len(xt)
 angle_test = np.arange(-20.1,20.1,40.2/1280)
-full_pixel_coords = ((np.arange(len(angles)) - (len(angles)/2))  / len(angles))
+#full_pixel_coords = ((np.arange(len(angles)) - (len(angles)/2))  / len(angles))
 ppx =  np.argmin(abs(xt)) + 0.5
 
 # plt.figure()
@@ -195,20 +198,20 @@ norm_pixel_coords = ((pixel_coords - (image_width/2))  / image_width)
 #angles = [10, 20, 30, 40]  # in degrees
 #image_width = 800
 #compute fov as difference between first and last angle in xt
-# fov = xt[-1] - xt[0]
-# focal_length_mean = calculate_focal_length(pixel_coords,xt,ppx,image_width)
-# focal_length = compute_focal_length(fov, image_width)
+fov = xt[-1] - xt[0]
+#focal_length_mean = calculate_focal_length(pixel_coords,xt,ppx,image_width)
+focal_length = compute_focal_length(fov, image_width)
 # print(f"Estimated mean focal length: {focal_length_mean:.2f} pixels")
 # print(f"Computed focal length: {focal_length:.2f} pixels")
 
-# dy_fov,alta_est = compute_vertical_pixel_coordinates(at,ppx, focal_length, image_width)
+dy_fov,alta_est = compute_vertical_pixel_coordinates(at,ppx, focal_length)
 # dy_mflen = compute_vertical_pixel_coordinates(at,ppx, focal_length_mean, image_width)
 
-# acta_est,dx_fov = compute_horizontal_pixel_coordinates(xt,ppx, focal_length, image_width)
+acta_est,dx_fov = compute_horizontal_pixel_coordinates(xt,ppx, focal_length)
 # hor_angles_mean,dx_mflen = compute_horizontal_pixel_coordinates(xt,ppx, focal_length_mean, image_width)
 
-# a5,a4,a3,a2,a1,a0= np.polyfit(norm_pixel_coords, dy_fov, deg=5)
-# b5,b4,b3,b2,b1,b0 = np.polyfit(norm_pixel_coords, dx_fov, deg=5)
+b = np.polyfit(norm_pixel_coords, -dy_fov, deg=5)
+a = np.polyfit(norm_pixel_coords, -dx_fov, deg=5)
 
 # Optimized acta and alta coefficients
 #Focal length: 1696.39x

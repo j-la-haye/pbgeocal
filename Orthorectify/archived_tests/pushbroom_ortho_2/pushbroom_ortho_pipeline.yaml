@@ -8,8 +8,7 @@
 # --- Input / Output Paths ---------------------------------------------------
 paths:
   # Applanix SBET binary (17 double-precision fields per record, NED body frame)
-  #sbet: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/SBET_Clmbr_Cal_ODyN_v8.out" 
-  sbet: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/M_001_CH_20250427_100239_OutC_POSTPROCESSING_SBET_Body_Frame.out"
+  sbet: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/SBET/SBET_Clmbr_Cal_ODyN_v8.out" 
 
   # ENVI BIL hyperspectral image + sidecar header
   bil_image: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/RGB/l5_rgb/bil_data/M024_250427_CHE_Colombier_Line_50001_131938_226_refl_rgb_650_550_450.bil"
@@ -22,13 +21,13 @@ paths:
 
   # Lab-measured across-track angles: CSV with one angle [degrees] per line,
   # one entry per pixel (0-indexed), monotonically increasing.
-  angle_lut: "Orthorectify/pushbroom_ortho_configs/AV4_acrosstrack_PSF_2024_valid_angles.csv"
+  angle_lut: "AV4_acrosstrack_PSF_2024_valid_angles.csv"
 
   # Digital Surface Model (GeoTIFF, ellipsoidal heights)
   dsm: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/wgs84/DSM_converted_ss3d/DSM_mosaic_M024_Clbr_L3_6_wgs84_ellipsoid_reframe.tif"
 
-  # Output orthorectified GeoTIFF - {a},{b},{c},{fl},{cx},{cy},{gsd} are auto-substituted from camera.smile/optics/processing at load time.
-  output: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/Orthos/L5/L5_stevi_model_gsd_{gsd}.tif"
+  # Output orthorectified GeoTIFF
+  output: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/Orthos/L5/L5_rgb_ortho.tif"
 
 # --- Coordinate Reference Systems -------------------------------------------
 crs:
@@ -36,69 +35,24 @@ crs:
   dsm_epsg: 4979          # UTM Zone 32N (WGS84)
 
   # CRS of the output orthophoto
-  output_epsg: 2056        # LV95 / CH1903+ (EPSG:2056)
+  output_epsg: 4979        # UTM Zone 32N (WGS84)
 
   # SBET datum (always WGS84 for Applanix)
   sbet_ellipsoid: "WGS84"
-
-# --- Camera Model (Steviapp) -----------------------------------------------
-# Pinhole projection with degree-5 polynomial lens distortion, jointly
-# optimised with focal length and boresight from image tie-points.
-#
-# Projection model (Steviapp eq. 1):
-#   u = f · (Xc/Zc) + ppx − Δx(u)      across-track pixel
-#   v = f · (Yc/Zc) − Δy(u)             along-track → 0 at correct time
-#
-# Distortion polynomials:
-#   Δx(u) = a0 + a1·ξ + a2·ξ² + a3·ξ³ + a4·ξ⁴ + a5·ξ⁵
-#   Δy(u) = b0 + b1·ξ + b2·ξ² + b3·ξ³ + b4·ξ⁴ + b5·ξ⁵
-#   ξ = (u − w/2) / w
-#
-# Sign convention for Δy:
-#   The calibration is done in camera frame (Y-back, Z-down).
-#   Δy(u) is in pixel units in the camera v-direction.
-#   The Newton solver drives:  f·(Yc/Zc) − Δy(u) → 0.
-#
-# Reference:
-#   Barmettler et al. (2025), "Quality assessment of Airborne Image
-#   Spectrometry Data for AVIRIS-4", doi:10.13140/RG.2.2.17556.17287
-camera:
-  focal_length:    1690.35      # f [pixels]
-  principal_point:  628.5      # ppx [pixels] (optical axis position)
-  detector_width:  1240         # w [pixels] — normalisation base for ξ
-
-  # Degree-5 lens distortion polynomials
-  # These coefficients are from the Steviapp factor-graph optimisation.
-  # Replace with your calibrated values.
-  distortion:
-    # Across-track:  Δx(u) [pixels]
-    # Encodes the difference between ideal pinhole and actual pixel position.
-    # With all zeros → pure pinhole (no across-track distortion correction).
-    delta_x: [-2.09804758,   0.06996482,   7.50162072,  -0.15395579, -42.02868578,0.28809888]
-
-    # Along-track (smile):  Δy(u) [pixels]
-    # Encodes the along-track scanline curvature (smile).
-    # With all zeros → no smile correction (flat scanlines).
-    delta_y: [-0.6900567 ,  29.05946622,  -0.84132678, 165.45774173,-2.52795261, -17.76418503]
 
 # --- Camera Model (Decoupled) -----------------------------------------------
 # Across-track: Lab-measured angle LUT (loaded from paths.angle_lut)
 # Along-track:  Smile polynomial  θ_at(xt) = a·xt² + b·xt + c
 #               where xt = tan(θ_across_track), angles in degrees.
 #
-#  # Along-track smile model: θ_at(xt) = a·xt² + b·xt + c, where xt = tan(θ_across_track).
-#a = -0.0036022
-#b = 0.0003831
-#c = 0.6025328
-#at = a * xt**2 + b*xt + c
 # The constant c is the boresight along-track offset (sensor line not at θ_y=0).
 # The quadratic a captures the parabolic smile curvature.
 # The linear b captures asymmetric tilt of the smile.
-# camera:
-#   smile:
-#     a: -0.004          # quadratic (smile curvature)
-#     b: -0.2 #0.0003          # linear (smile tilt)
-#     c:  3.0         # constant (along-track boresight offset, degrees)
+camera:
+  smile:
+    a: -0.0036022          # quadratic (smile curvature)
+    b:  0.0003831          # linear (smile tilt)
+    c:  0.6025328          # constant (along-track boresight offset, degrees)
 
   # In-flight focal length and principal point correction.
   #
@@ -122,13 +76,11 @@ camera:
   # NOTE: cx is NOT an absolute pixel position.  The LUT already encodes
   # where the optical axis falls (~pixel 627.78).  cx only captures
   # the CHANGE from that lab reference due to in-flight conditions.
-  # optics:
-  #   f_lab: 1732.63             # lab focal length [pixels] (from mean IFOV of angle LUT)
-  #   f:     1697.63            # in-flight focal length [pixels] (= f_lab if no correction)
-  #   cx:    -30.5              # across-track PP shift [pixels] from lab optical axis (0 = no shift)
-  #   cy:    0.0               # along-track  PP shift [pixels] from lab optical axis (0 = no shift)
-  # If the LUT covers the full BIL detector width, set to 0.
-  first_valid_pixel: 0
+  optics:
+    f_lab: 1796.753             # lab focal length [pixels] (from mean IFOV of angle LUT)
+    f:     1796.753            # in-flight focal length [pixels] (= f_lab if no correction)
+    cx:    0.5               # across-track PP shift [pixels] from lab optical axis (0 = no shift)
+    cy:    0.5               # along-track  PP shift [pixels] from lab optical axis (0 = no shift)
 
 # --- Mounting / Lever-Arm / Boresight ----------------------------------------
 # All values define the spatial and angular relationship between the IMU
@@ -144,9 +96,9 @@ mounting:
   # Boresight angles: small rotations from body frame to camera frame [degrees]
   # Applied as Rz(yaw) @ Ry(pitch) @ Rx(roll) on top of the mounting matrix
   boresight:
-    roll:   -0.292           # degrees, about body X (forward)
-    pitch: 0.178          # degrees, about body Y (right)
-    yaw:   -0.10275        # degrees, about body Z (down)
+    roll:   -0.3693           # degrees, about body X (forward)
+    pitch: 3.2642          # degrees, about body Y (right)
+    yaw:    -0.4312        # degrees, about body Z (down)
 
   # Mounting matrix: fixed rotation from body NED to camera frame
   # Camera frame: X-right, Y-back, Z-down
@@ -166,13 +118,13 @@ mounting:
 # --- Processing Parameters --------------------------------------------------
 processing:
   # Output ground sample distance (meters)
-  output_gsd: 2.0
+  output_gsd: 1.0
 
   # Tile size for parallel processing (pixels)
   tile_size: 512
 
   # Number of parallel worker processes
-  num_workers: 6
+  num_workers: 2
 
   # Newton iteration parameters for time solving
   newton:
