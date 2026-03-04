@@ -30,7 +30,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from pathlib import Path
-from  camera_models.load_PSF import compute_focal_length
+#from  camera_models.load_PSF import compute_focal_length
 
 # =========================================================================
 # Configuration — edit these to match your setup
