@@ -191,7 +191,7 @@ if __name__ == "__main__":
     px = np.arange(0, 1280, 1)
 
     # Get CHB measurements
-    data = loadmat('/media/addLidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/AV4_acrosstrack_PSF_2024.mat')
+    data = loadmat('/media/addLidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/DLR_Lab_Model/AV4_acrosstrack_PSF_2024.mat')
     angles = np.array(data['AV4_acrosstrack_PSF']['angles'])[:, 0]
 
     #write angles to csv
@@ -211,7 +211,7 @@ if __name__ == "__main__":
 
     # select pixels with FWHM > 0
     #num_pixels = len(px)
-    valid_indices = np.where(fwhms > 0.025)[0][2:-2]
+    valid_indices = np.where(fwhms > 0.022)[0]#[2:-2]
     
     # plot fwhm filtered
      

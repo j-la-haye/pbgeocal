@@ -95,7 +95,7 @@ def angles_to_distortion(angles_deg, f, ppx):
     # Along-track: smile evaluated at each pixel's across-track angle
     smile_deg = SMILE_A * angles_deg**2 + SMILE_B * angles_deg + SMILE_C
     # Negate: smile calibration is Y-forward, camera is Y-back
-    delta_y = -f * np.tan(np.deg2rad(smile_deg))
+    delta_y = f * np.tan(np.deg2rad(smile_deg))
 
     print(f"\nPixel-space distortion:")
     print(f"  Δx: [{delta_x.min():+.4f}, {delta_x.max():+.4f}] px, "
@@ -341,12 +341,15 @@ def main():
 
     # ---- Step 1: Load LUT ----
     angles_deg = load_lut(ANGLE_LUT_PATH)
+    # change order of angles_deg
+    angles_deg = angles_deg[::-1]
     fov = angles_deg[-1] - angles_deg[0]
     w = len(angles_deg)
     u = np.arange(w, dtype=np.float64)
 
     # ---- Step 2: Estimate optimal pinhole parameters ----
     f, ppx = estimate_pinhole(angles_deg, w)
+    #f *= -1
     #f = compute_focal_length(fov, w)
 
     # ---- Step 3: Convert angles → pixel-space distortion ----

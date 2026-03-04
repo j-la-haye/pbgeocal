@@ -28,7 +28,7 @@ paths:
   dsm: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/wgs84/DSM_converted_ss3d/DSM_mosaic_M024_Clbr_L3_6_wgs84_ellipsoid_reframe.tif"
 
   # Output orthorectified GeoTIFF - {a},{b},{c},{fl},{cx},{cy},{gsd} are auto-substituted from camera.smile/optics/processing at load time.
-  output: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/Orthos/L5/L5_stevi_model_fl_{fl}_gsd_{gsd}.tif"
+  output: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/DN_proc/25427_Thun_Colomb_Areuse/25_cal_ch/odyn_in_tp_unrect/output/Orthos/L5/L5_stevi_swapped_angles_fl_{fl}_gsd_{gsd}.tif"
 
 # --- Coordinate Reference Systems -------------------------------------------
 crs:
@@ -63,8 +63,8 @@ crs:
 #   Barmettler et al. (2025), "Quality assessment of Airborne Image
 #   Spectrometry Data for AVIRIS-4", doi:10.13140/RG.2.2.17556.17287
 camera:
-  focal_length:    1690.35      # f [pixels]
-  principal_point:  628.0674    # ppx [pixels] (optical axis position)
+  focal_length:    -1732.62      # f [pixels]
+  principal_point: 610.9326     # ppx [pixels] (optical axis position)
   detector_width:  1240         # w [pixels] — normalisation base for ξ
 
   # Degree-5 lens distortion polynomials
@@ -74,12 +74,16 @@ camera:
     # Across-track:  Δx(u) [pixels]
     # Encodes the difference between ideal pinhole and actual pixel position.
     # With all zeros → pure pinhole (no across-track distortion correction).
-    delta_x: [5.7269156133e-01, -4.5834874563e+01, -5.9361058186e+00, 2.8091178965e+02, -5.2026086449e+00, 1.2485813975e+02]
+    #delta_x: [5.7269156133e-01, -4.5834874563e+01, -5.9361058186e+00, 2.8091178965e+02, -5.2026086449e+00, 1.2485813975e+02]
+    # swapped order angles
+    delta_x: [ -0.6096511619, -45.8247521027,   6.6157520726, 280.9293842883,5.7060688859, 124.8581397517]
 
     # Along-track (smile):  Δy(u) [pixels]
     # Encodes the along-track scanline curvature (smile).
     # With all zeros → no smile correction (flat scanlines).
-    delta_y: [-1.8208505933e+01, -2.5911822005e+00, 1.6959619968e+02, -8.6237018919e-01, 2.9786306664e+01, -7.0731652175e-01]
+    #delta_y: [-1.8208505933e+01, -2.5911822005e+00, 1.6959619968e+02, -8.6237018919e-01, 2.9786306664e+01, -7.0731652175e-01]
+    # swapped order LUT angles
+    delta_y: [-18.2063059702,   2.8647262031, 169.5984022911,   0.9584596495,29.7891587471,   0.7073165217]
 
 # --- Camera Model (Decoupled) -----------------------------------------------
 # Across-track: Lab-measured angle LUT (loaded from paths.angle_lut)
@@ -87,10 +91,10 @@ camera:
 #               where xt = tan(θ_across_track), angles in degrees.
 #
 #  # Along-track smile model: θ_at(xt) = a·xt² + b·xt + c, where xt = tan(θ_across_track).
-#a = -0.0036022
-#b = 0.0003831
-#c = 0.6025328
-#at = a * xt**2 + b*xt + c
+#  a = -0.0036022
+#  b = 0.0003831
+#  c = 0.6025328
+#  at = a * xt**2 + b*xt + c
 # The constant c is the boresight along-track offset (sensor line not at θ_y=0).
 # The quadratic a captures the parabolic smile curvature.
 # The linear b captures asymmetric tilt of the smile.
@@ -166,7 +170,7 @@ mounting:
 # --- Processing Parameters --------------------------------------------------
 processing:
   # Output ground sample distance (meters)
-  output_gsd: 1.0
+  output_gsd: 2.0
 
   # Tile size for parallel processing (pixels)
   tile_size: 512
