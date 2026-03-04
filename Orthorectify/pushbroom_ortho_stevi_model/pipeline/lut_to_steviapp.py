@@ -36,7 +36,7 @@ from  camera_models.load_PSF import compute_focal_length
 # Configuration — edit these to match your setup
 # =========================================================================
 
-ANGLE_LUT_PATH = 'Orthorectify/pushbroom_ortho_configs/AV4_acrosstrack_PSF_2024_valid_angles.csv'
+ANGLE_LUT_PATH = '/media/addLidar/AVIRIS_4_Mission_Processing/AV4_Camera_Model_Data/AV4_acrosstrack_PSF_2024_valid_angles.csv'
 
 # Smile polynomial: θ_at = a·θ_ac² + b·θ_ac + c  (all in degrees)
 SMILE_A = -0.0036022
@@ -342,7 +342,7 @@ def main():
     # ---- Step 1: Load LUT ----
     angles_deg = load_lut(ANGLE_LUT_PATH)
     # change order of angles_deg
-    angles_deg = angles_deg[::-1]
+    #angles_deg = angles_deg[::-1]
     fov = angles_deg[-1] - angles_deg[0]
     w = len(angles_deg)
     u = np.arange(w, dtype=np.float64)
