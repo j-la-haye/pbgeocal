@@ -6,12 +6,6 @@ from shapely.geometry import Point, LineString
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 
-import pandas as pd
-import geopandas as gpd
-import matplotlib.pyplot as plt
-import contextily as ctx
-from shapely.geometry import Point
-
 def plot_2d_osm_map(csv_file, zoom=14):
     # Load CSV
     df = pd.read_csv(csv_file)

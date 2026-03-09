@@ -97,7 +97,7 @@ def load_frame_times(frame_file_path,read_first_time_only = False):
             infos[i].gps_time_last_pps = infos[i].gps_time_last_pps + 1
        
        # else check if check if delta_nav_gps is greater than 0.0313 or less than 1 and if delta_telegram_pps is greater than 0 or less than 0.0313
-       elif delta_telegram_pps > 0 and delta_telegram_pps < 0.027:
+       elif (delta_nav_gps < 1 and delta_nav_gps < 0.027) and (delta_telegram_pps > 0 and delta_telegram_pps < 0.027):
             infos[i].gps_time_last_pps = infos[i].gps_time_last_pps + 1
 
     if not babe_idxs:
@@ -172,13 +172,13 @@ def main():
 
 if __name__ == "__main__":
 
-    raw_path = '/Users/jlahaye/Work/AVIRIS4/AV4_Thun/AV4_Raw_Data/L204/204_locked/RawDataCube_Line_0204_1.bin'
+    raw_path = '/media/addLidar/AVIRIS_4_Mission_Processing/2025/M0250427_CHE_AV4_ALS_Cal_Colomb_Boudry/Raw_bin/M024_250427_CHE_Colombier/Forest_Lines/RawDataCube_Line_24465_2025-04-27_133351_305.bin'
     times = load_frame_times(raw_path, read_first_time_only=False)
 
     # save times to csv
     import pandas as pd
     df = pd.DataFrame(times,columns=['time'])
     # write df to 
-    df.to_csv('/Users/jlahaye/Work/AVIRIS4/AV4_Thun/AV4_Raw_Data/L204/204_locked/RawDataCube_Line_0204_1_times.csv', index=False)
+    df.to_csv('/media/addLidar/AVIRIS_4_Mission_Processing/2025/M0250427_CHE_AV4_ALS_Cal_Colomb_Boudry/Raw_bin/M024_250427_CHE_Colombier/Forest_Lines/RawDataCube_Line_24465_2025-04-27_133351_305_times.csv', index=False)
 
     #main()

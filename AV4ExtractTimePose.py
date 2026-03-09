@@ -24,7 +24,7 @@ def write_csv(input_df,output_file,input_type=['traj','imu','gps','times']):
                 places = 6
 
             if input_type == 'times':
-                places = 0
+                places = 5
             else:
                 places = 14
             
@@ -391,7 +391,7 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
 
     # Plot 2D SBET trajectory for verification
     print("SBET parsing complete, plotting SBET trajectory for verification")
-    plot_2d_osm_altitude(sbet_csv_path, zoom=10)
+    #plot_2d_osm_altitude(sbet_csv_path, zoom=10)
 
     in_path = Path(in_path)
     
@@ -420,23 +420,37 @@ def av4_extract_time_pose(in_path,traj_data,imu_data=None,interp_poses = True,pa
         else:
             line_times = AV4EstimateLineTimes(line,LineCreationTimes)
             # Plot line times to ensure times increment linearly
+
             
         
         # Compute delta time between line times
         computed_delta = np.diff(line_times['tod(10usec)'].astype(np.float64))
         print(f"Computed delta time for line {line.split('/')[-1]}: {np.median(computed_delta)} usec")
+        # print the max and min of the computed delta time
+        print(f"Max delta time: {np.max(computed_delta)} usec, Min delta time: {np.min(computed_delta)} usec")
+
+        # assert that the min and max of the computed delta time is between 460 and 480 usec
+        # if min(computed_delta) < 460 add 10000 usec to all lines from the index where the delta time is less than 460 to the end of the line times
+        if np.min(computed_delta) < 460:
+            idx = np.where(computed_delta < 460)[0][0]
+            line_times['tod(10usec)'] = line_times['tod(10usec)'].astype(np.float64)
+            line_times.loc[idx+1:, 'tod(10usec)'] += 100000
+            print(f"Adjusted line times for line {line.split('/')[-1]} to correct for time jump at index {idx}")
+            computed_delta = np.diff(line_times['tod(10usec)'].astype(np.float64))
+            print(line_times.iloc[idx:idx+10])
         #print first line_times
-        print(line_times.head())
+        #print(line_times.head())
+        
         
         #plot the computed delta time
         plt.plot(computed_delta)
         plt.xlabel('Line Number')
         plt.ylabel('Delta Time (10 usec)')
-        #plt.title(f"Computed Delta Time for {line.split('/')[-1]}")
-        #plt.show()
+        plt.title(f"Computed Delta Time for {line.split('/')[-1]}")
+        plt.show()
 
 
-        write_csv(line_times,times_path,input_type='times')
+        write_csv(line_times*1e-5,times_path,input_type='times')
         
 
         # Save traj for current line times

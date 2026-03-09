@@ -2,8 +2,8 @@
 # Converts Swiss LV95/LN02 GeoTiff tiles to WGS84/ETRS89
 
 # Input/Output directories
-input_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/lv95/DSM_LN02_LV95"
-output_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DSM/DSM_proc/wgs84/DSM_converted_ss3d"
+input_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DTM/L1_2/lv95_ln02"
+output_dir: "/media/addLidar/AVIRIS_4_Testing/SteviApp_TiePoint_Testing/HS_Data_Lines/DTM/L1_2/wgs84"
 
 # Coordinate Reference Systems
 source_crs:
@@ -21,7 +21,7 @@ target_crs: "EPSG:4979"  # WGS84 3D (lon, lat, ellipsoidal height)
 # - "auto": Produce BOTH pyproj and reframe outputs for comparison (recommended for evaluation)
 # - "reframe": Use SwissTopo Reframe API only (requires network)
 # - "pyproj": Use pyproj only (works offline, uses approximate geoid if grids missing)
-transformation_method: "auto"
+transformation_method: "pyproj"
 
 # SwissTopo Reframe API settings
 reframe_api:
