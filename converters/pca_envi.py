@@ -557,7 +557,9 @@ def main():
         sys.exit(0)
 
     # Load YAML config
-    cfg = load_config(cli.config)
+    config_path = 'converters/pca_config.yaml'
+    #cfg = load_config(cli.config)
+    cfg = load_config(config_path)
 
     # Unpack for readability
     input_hdr          = cfg["input_hdr"]
