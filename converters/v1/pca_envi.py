@@ -584,6 +584,14 @@ def compute_band_contributions(eigenvalues, eigenvectors, n_components,
         print(f"  Band contribution report: {csv_path}")
         print(f"  (all {bands} bands ranked, "
               f"top {min(n_components, 10)} PC loadings)")
+    # Find visible band indices closest to (Blue -450, Green -550, Red -650)  and add to the top_indices if not already present
+    if has_wl:
+        target_wls = [450, 550, 650]
+        for target in target_wls:
+            idx_closest = np.argmin(np.abs(wavelengths - target))
+            if idx_closest not in top_indices:
+                top_indices = np.append(top_indices, idx_closest)
+                print(f"  Added band {idx_closest} (wavelength {wavelengths[idx_closest]:.2f} {wl_units}) to top indices for being closest to {target} nm.")
 
     return top_indices, importance
 
@@ -598,8 +606,10 @@ def main():
         print(EXAMPLE_YAML)
         sys.exit(0)
 
-    cfg = load_config(cli.config)
-
+    config_path = 'converters/v1/pca_config.yaml'
+    #cfg = load_config(cli.config)
+    cfg = load_config(config_path)
+    
     input_hdr       = cfg["input_hdr"]
     target_variance = cfg["variance"]
     nodata_val      = cfg["nodata_value"]
@@ -612,7 +622,7 @@ def main():
     chunk_lines     = cfg["chunk_lines"]
     out_dtype       = np.dtype(out_dtype_str)
 
-    print(f"Config loaded from: {cli.config}")
+    print(f"Config loaded from: {config_path}")
     print(f"  variance={target_variance}  nodata={nodata_val}  "
           f"dtype={out_dtype_str}  interleave={out_interleave}  "
           f"chunk_lines={chunk_lines}")

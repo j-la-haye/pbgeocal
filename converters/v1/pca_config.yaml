@@ -4,10 +4,10 @@
 # ────────────────────────────────────────────────────────────────────────
 
 # (required) Path to the ENVI .hdr file
-input_hdr: /data/flight01/scene.hdr
+input_hdr: /media/addLidar/Projects/TreeSegmentationProject/AV4_Lines/L1/bil_data/M024_250427_CHE_Colombier_Line_4465_132807_294_refl.hdr
 
 # (optional) Output stem without extension.  Default: <input_stem>_pca
-# output: /data/flight01/scene_pca
+output: /media/addLidar/Projects/TreeSegmentationProject/AV4_Lines/L1/PCA_95
 
 # Cumulative explained-variance fraction to retain  (0.0 – 1.0)
 variance: 0.95
@@ -31,7 +31,7 @@ validate: true
 
 # Number of top contributing input bands to report
 # A CSV with all bands ranked is also written alongside the output
-top_bands: 20
+top_bands: 30
 
 # Write the top contributing bands as a separate ENVI BIL image
 # The output file will be named <output_stem>_top_bands.bil/.hdr
@@ -39,6 +39,6 @@ write_top_bands: true
 
 # Number of image lines to process per I/O chunk.
 # Controls peak memory:  ~ chunk_lines × samples × bands × 8 bytes.
-# For a 320-band, 1000-sample image: 256 lines ≈ 625 MB working memory.
+# For a 320-band, 1000-sample image: 4096 lines ≈ 10.0 GB working memory.
 # Reduce if running low on RAM; increase for faster throughput.
-chunk_lines: 256
+chunk_lines: 2048
