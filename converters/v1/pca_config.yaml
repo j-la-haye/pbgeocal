@@ -1,0 +1,44 @@
+# ── pca_config.yaml ─────────────────────────────────────────────────────
+# Configuration for pca_envi.py
+# All paths can be absolute or relative to this YAML file's directory.
+# ────────────────────────────────────────────────────────────────────────
+
+# (required) Path to the ENVI .hdr file
+input_hdr: /data/flight01/scene.hdr
+
+# (optional) Output stem without extension.  Default: <input_stem>_pca
+# output: /data/flight01/scene_pca
+
+# Cumulative explained-variance fraction to retain  (0.0 – 1.0)
+variance: 0.95
+
+# Pixel value treated as no-data (all bands equal this → masked out of
+# covariance computation, zeroed in the output)
+nodata_value: 0.0
+
+# Output numpy dtype:  float32 | float64
+output_dtype: float32
+
+# Output interleave:  bil | bsq | bip
+output_interleave: bil
+
+# How many principal components to print in the variance summary table
+max_print_components: 20
+
+# Cross-validate against spectral.principal_components()
+# Set to false to skip validation step
+validate: true
+
+# Number of top contributing input bands to report
+# A CSV with all bands ranked is also written alongside the output
+top_bands: 20
+
+# Write the top contributing bands as a separate ENVI BIL image
+# The output file will be named <output_stem>_top_bands.bil/.hdr
+write_top_bands: true
+
+# Number of image lines to process per I/O chunk.
+# Controls peak memory:  ~ chunk_lines × samples × bands × 8 bytes.
+# For a 320-band, 1000-sample image: 256 lines ≈ 625 MB working memory.
+# Reduce if running low on RAM; increase for faster throughput.
+chunk_lines: 256
